@@ -26,3 +26,5 @@ Thumbs.db
 # Project-specific ignores
 audio/
 *downloaded.txt
+data/
+segments/
