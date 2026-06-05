@@ -139,5 +139,5 @@ def collect_metadata(file_path: str):
 
 if __name__ == "__main__":
     collect_metadata(
-        "/home/ssp/UnknownHaas/speech-pipeline/links.txt"
+        "../links.txt"
     )

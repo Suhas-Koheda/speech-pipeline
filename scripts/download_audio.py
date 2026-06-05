@@ -4,42 +4,41 @@ from yt_dlp import YoutubeDL
 from pathlib import Path
 import re
 
+
+AUDIO_DIR = Path("../audio")
+
+
 def sanitize_name(name):
     return re.sub(r'[<>:"/\\|?*]', "_", name)
 
-def get_audio(metadata_file_path, output_dir):
-    with open(metadata_file_path, 'r') as f:
-        metadata = json.load(f)
-    for video in metadata:
-        try:
-            if video["duration"] is None:
-                continue
 
-            if video["duration"] < 300:
-                continue
-
-            download_audio(
-                video["url"],
-                video["channel"],
-                "mp3",
-                output_dir
-            )
-
-        except Exception as e:
-            print(f"Failed: {video['url']}")
-            print(e)
-
-def download_audio(video_url: str, channel_name: str, file_type: str,output_dir:str):
+def download_audio(
+    video_url: str,
+    channel_name: str,
+    title: str,
+    file_type: str,
+):
     channel_name = sanitize_name(channel_name)
-    Path(f"{output_dir}/{channel_name}").mkdir(
+    title = sanitize_name(title)
+
+    channel_dir = AUDIO_DIR / channel_name
+
+    channel_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
 
     ydl_opts = {
-        "format": "bestaudio/best" if file_type == "mp3" else "best",
-        "outtmpl": f"{output_dir}/{channel_name}/%(title)s.%(ext)s",
+        "format": (
+            "bestaudio/best"
+            if file_type == "mp3"
+            else "best"
+        ),
+        "outtmpl": str(
+            channel_dir / "%(title)s.%(ext)s"
+        ),
         "download_archive": "downloaded.txt",
+        "cookiesfrombrowser": ("chrome",),
     }
 
     if file_type == "mp3":
@@ -52,16 +51,88 @@ def download_audio(video_url: str, channel_name: str, file_type: str,output_dir:
         ]
 
     with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(
+            video_url,
+            download=False,
+        )
+        filename = Path(
+            ydl.prepare_filename(info)
+        ).stem + ".mp3"
         ydl.download([video_url])
 
+    relative_audio_path = str(
+        AUDIO_DIR
+        / channel_name
+        / filename
+    )
 
-if __name__=="__main__":
+    return relative_audio_path
+
+
+def get_audio(
+    metadata_file_path,
+):
+    with open(
+        metadata_file_path,
+        "r",
+        encoding="utf-8",
+    ) as f:
+        metadata = json.load(f)
+
+    updated_metadata = []
+
+    for video in metadata:
+        try:
+            if video["duration"] is None:
+                continue
+
+            if video["duration"] < 300:
+                continue
+
+            audio_path = download_audio(
+                video["url"],
+                video["channel"],
+                video["title"],
+                "mp3",
+            )
+
+            video["audio_path"] = audio_path
+
+            updated_metadata.append(video)
+
+            print(
+                f"Downloaded: {video['title']}"
+            )
+
+        except Exception as e:
+            print(
+                f"Failed: {video['url']}"
+            )
+            print(e)
+
+    with open(
+        metadata_file_path,
+        "w",
+        encoding="utf-8",
+    ) as f:
+        json.dump(
+            updated_metadata,
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    print(
+        f"Updated metadata saved to {metadata_file_path}"
+    )
+
+
+if __name__ == "__main__":
     collect_metadata(
-        "/home/ssp/UnknownHaas/speech-pipeline/links.txt"
+        "../links.txt"
     )
     get_audio(
-        "/home/ssp/UnknownHaas/speech-pipeline/data/metadata.json",
-        "/home/ssp/UnknownHaas/speech-pipeline/audio"
+        "../data/metadata.json"
     )
 # https://www.youtube.com/watch?v=9QpkWAyG-eE&t=203s&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
 # https://www.youtube.com/watch?v=TdVWQ8jtZRM&t=1022s&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
