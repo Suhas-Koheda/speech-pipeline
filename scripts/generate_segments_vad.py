@@ -118,12 +118,11 @@ def save_segments(
     audio,
     timestamps,
     output_dir,
-    video_title,
     video_metadata,
 ):
-    video_title = sanitize_name(video_title)
+    video_id = video_metadata["video_id"]
 
-    output_dir = Path(output_dir) / video_title
+    output_dir = Path(output_dir) / video_id
 
     output_dir.mkdir(
         parents=True,
@@ -238,7 +237,6 @@ def process_audio(metadata):
                 audio,
                 final_segments,
                 output_dir,
-                video["title"],
                 video,
             )
 

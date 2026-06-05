@@ -50,7 +50,10 @@ def download_audio(
             }
         ]
 
-    with YoutubeDL(ydl_opts) as ydl:
+    extract_opts = ydl_opts.copy()
+    extract_opts.pop("download_archive", None)
+
+    with YoutubeDL(extract_opts) as ydl:
         info = ydl.extract_info(
             video_url,
             download=False,
@@ -58,6 +61,8 @@ def download_audio(
         filename = Path(
             ydl.prepare_filename(info)
         ).stem + ".mp3"
+
+    with YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
 
     relative_audio_path = str(
@@ -108,7 +113,8 @@ def get_audio(
             print(
                 f"Failed: {video['url']}"
             )
-            print(e)
+            import traceback
+            traceback.print_exc()
 
     with open(
         metadata_file_path,
