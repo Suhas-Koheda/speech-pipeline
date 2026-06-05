@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import soundfile as sf
 from silero_vad import (
@@ -6,9 +7,12 @@ from silero_vad import (
     read_audio,
     get_speech_timestamps,
 )
-import re
 
 SAMPLING_RATE = 16000
+
+
+def sanitize_name(name):
+    return re.sub(r'[<>:"/\\|?*]', "_", name)
 
 
 def merge_segments(
@@ -36,17 +40,54 @@ def merge_segments(
     return merged
 
 
+def split_long_segments(
+    timestamps,
+    sampling_rate=SAMPLING_RATE,
+    max_duration_seconds=15,
+):
+    max_samples = int(
+        max_duration_seconds * sampling_rate
+    )
+
+    result = []
+
+    for ts in timestamps:
+        start = ts["start"]
+        end = ts["end"]
+
+        while end - start > max_samples:
+            result.append({
+                "start": start,
+                "end": start + max_samples,
+            })
+
+            start += max_samples
+
+        if end > start:
+            result.append({
+                "start": start,
+                "end": end,
+            })
+
+    return result
+
+
 def filter_segments(
     timestamps,
     sampling_rate=SAMPLING_RATE,
-    min_duration_seconds=2.0,
+    min_duration_seconds=3.0,
 ):
-    return [
-        ts
-        for ts in timestamps
-        if (ts["end"] - ts["start"]) / sampling_rate
-        >= min_duration_seconds
-    ]
+    filtered = []
+
+    for ts in timestamps:
+        duration = (
+            ts["end"] - ts["start"]
+        ) / sampling_rate
+
+        if duration >= min_duration_seconds:
+            filtered.append(ts)
+
+    return filtered
 
 
 def print_stats(timestamps):
@@ -93,8 +134,6 @@ def save_segments(
             SAMPLING_RATE,
         )
 
-def sanitize_name(name):
-    return re.sub(r'[<>:"/\\|?*]', "_", name)
 
 def process_audio(
     audio_path,
@@ -125,31 +164,40 @@ def process_audio(
 
     merged = merge_segments(
         speech_timestamps,
-        max_gap_seconds=1,
+        max_gap_seconds=0.5,
     )
 
     print(
         f"After Merge: {len(merged)}"
     )
 
-    filtered = filter_segments(
+    split_segments = split_long_segments(
         merged,
-        min_duration_seconds=2.0,
+        max_duration_seconds=15,
     )
 
     print(
-        f"After Filter: {len(filtered)}"
+        f"After Split: {len(split_segments)}"
     )
 
-    print_stats(filtered)
+    final_segments = filter_segments(
+        split_segments,
+        min_duration_seconds=3.0,
+    )
+
+    print(
+        f"After Filter: {len(final_segments)}"
+    )
+
+    print_stats(final_segments)
 
     print("Saving segments...")
 
     save_segments(
         audio,
-        filtered,
+        final_segments,
         output_dir,
-        video_title
+        video_title,
     )
 
     print(
@@ -159,7 +207,7 @@ def process_audio(
 
 if __name__ == "__main__":
     process_audio(
-    "/home/ssp/UnknownHaas/speech-pipeline/audio/Raw Talks With VK/You Might Cry Watching🥺｜Manaki Teliyani History｜ Ft.Pasham Yadagiri｜RawTalks withVK TeluguPodcast 64.mp3",
-    "/home/ssp/UnknownHaas/speech-pipeline/segments/Raw Talks With VK",
-    "You Might Cry Watching🥺｜Manaki Teliyani History｜ Ft.Pasham Yadagiri｜RawTalks withVK TeluguPodcast 64"
-)
+        "/home/ssp/UnknownHaas/speech-pipeline/audio/Raw Talks With VK/You Might Cry Watching🥺｜Manaki Teliyani History｜ Ft.Pasham Yadagiri｜RawTalks withVK TeluguPodcast 64.mp3",
+        "/home/ssp/UnknownHaas/speech-pipeline/segments/Raw Talks With VK",
+        "You Might Cry Watching🥺｜Manaki Teliyani History｜ Ft.Pasham Yadagiri｜RawTalks withVK TeluguPodcast 64",
+    )
