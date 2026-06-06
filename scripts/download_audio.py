@@ -16,7 +16,6 @@ def download_audio(
     video_url: str,
     channel_name: str,
     title: str,
-    file_type: str,
 ):
     channel_name = sanitize_name(channel_name)
     title = sanitize_name(title)
@@ -29,26 +28,24 @@ def download_audio(
     )
 
     ydl_opts = {
-        "format": (
-            "bestaudio/best"
-            if file_type == "mp3"
-            else "best"
-        ),
-        "outtmpl": str(
-            channel_dir / "%(title)s.%(ext)s"
-        ),
-        "download_archive": "downloaded.txt",
-        "cookiesfrombrowser": ("chrome",),
-    }
+    "format": "bestaudio/best",
+    "outtmpl": str(
+        channel_dir / "%(title)s.%(ext)s"
+    ),
+    "download_archive": "downloaded.txt",
+    "cookiesfrombrowser": ("chrome",),
+    "postprocessors": [
+        {
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "wav",
+        }
+    ],
+    "postprocessor_args": [
+        "-ar", "16000",
+        "-ac", "1",
+    ],
+}
 
-    if file_type == "mp3":
-        ydl_opts["postprocessors"] = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ]
 
     extract_opts = ydl_opts.copy()
     extract_opts.pop("download_archive", None)
@@ -60,7 +57,7 @@ def download_audio(
         )
         filename = Path(
             ydl.prepare_filename(info)
-        ).stem + ".mp3"
+        ).stem + ".wav"
 
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
@@ -98,7 +95,6 @@ def get_audio(
                 video["url"],
                 video["channel"],
                 video["title"],
-                "mp3",
             )
 
             video["audio_path"] = audio_path
@@ -142,8 +138,7 @@ if __name__ == "__main__":
     )
 # https://www.youtube.com/watch?v=9QpkWAyG-eE&t=203s&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
 # https://www.youtube.com/watch?v=TdVWQ8jtZRM&t=1022s&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
-# https://www.youtube.com/watch?v=d6-IFzGisYQ&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
-# https://www.youtube.com/watch?v=XZqK-I-kc-Y&t=132s&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz0gcJCSgLAYcqIYzv
+
 # https://www.youtube.com/watch?v=7FbeLGB6lr0&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
 # https://www.youtube.com/watch?v=mkPWFBmCpw8&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
 

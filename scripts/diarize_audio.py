@@ -1,3 +1,5 @@
+from download_audio import get_audio
+from extract_metatdata import collect_metadata
 import torch
 from pyannote.audio import Pipeline
 from pyannote.audio.pipelines.utils.hook import ProgressHook
@@ -7,12 +9,12 @@ pipeline=Pipeline.from_pretrained(
     
 ).to(torch.device("cpu"))
 
-def diarize_audio(segment_data):
-    for segment in segment_data:
-        print(f"Processing segment {segment['segment_path']}")
+def diarize_audio(metadata):
+    for video in metadata:
+        print(f"Processing video {video['title']}")
         speaker_metadata={}
         with ProgressHook() as hook:
-            output = pipeline(segment["segment_path"], hook=hook)  
+            output = pipeline(video["audio_path"], hook=hook)  
         
         for turn, speaker in output.speaker_diarization:
             if speaker not in speaker_metadata:
@@ -23,31 +25,38 @@ def diarize_audio(segment_data):
                     "end":turn.end
                 }
             )
-        segment["speaker_data"] = speaker_metadata
-    return segment_data
+        video["speaker_data"] = speaker_metadata
+    return metadata
 
 
 if __name__ == "__main__":
+    collect_metadata(
+        "../links.txt"
+    )
+
+    get_audio(
+        "../data/metadata.json"
+    )
+
     with open(
-        "../data/segments_metadata.jsonl",
+        "../data/metadata.json",
         "r",
         encoding="utf-8",
     ) as f:
-        segment_data = [
-            json.loads(line)
-            for line in f
-        ]
-    segment_data = diarize_audio(segment_data)
+        metadata = json.load(f)
+
+    metadata = diarize_audio(
+        metadata
+    )
+
     with open(
-        "../data/segments_metadata.jsonl",
+        "../data/metadata.json",
         "w",
         encoding="utf-8",
     ) as f:
-        for record in segment_data:
-            f.write(
-                json.dumps(
-                    record,
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+        json.dump(
+            metadata,
+            f,
+            ensure_ascii=False,
+            indent=4,
+        )
