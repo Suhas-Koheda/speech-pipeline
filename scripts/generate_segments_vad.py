@@ -137,23 +137,23 @@ def save_segments(
 
         segment = audio[start:end]
 
-        segment_path = (
-            output_dir /
-            f"segment_{idx:05d}.wav"
-        )
+        # segment_path = (
+        #     output_dir /
+        #     f"segment_{idx:05d}.wav"
+        # )
 
-        sf.write(
-            segment_path,
-            segment.numpy(),
-            SAMPLING_RATE,
-        )
+        # sf.write(
+        #     segment_path,
+        #     segment.numpy(),
+        #     SAMPLING_RATE,
+        # )
 
         segment_metadata.append({
             "video_id": video_metadata["video_id"],
             "channel": video_metadata["channel"],
             "title": video_metadata["title"],
             "audio_path": video_metadata["audio_path"],
-            "segment_path": str(segment_path),
+            # "segment_path": str(segment_path),
             "start": start / SAMPLING_RATE,
             "end": end / SAMPLING_RATE,
             "duration": (
