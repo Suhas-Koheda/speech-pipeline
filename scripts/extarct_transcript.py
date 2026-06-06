@@ -15,7 +15,11 @@ model = AutoModel.from_pretrained(
 )
 
 
-def transcribe(audio_path):
+def transcribe(
+    audio_path,
+    start_time,
+    end_time,
+):
     wav, sr = torchaudio.load(audio_path)
 
     wav = torch.mean(
@@ -23,6 +27,19 @@ def transcribe(audio_path):
         dim=0,
         keepdim=True,
     )
+
+    start_sample = int(
+        start_time * sr
+    )
+
+    end_sample = int(
+        end_time * sr
+    )
+
+    wav = wav[
+        :,
+        start_sample:end_sample,
+    ]
 
     if sr != TARGET_SR:
         wav = torchaudio.transforms.Resample(
@@ -53,12 +70,18 @@ def update_segments_metadata(
             records.append(
                 json.loads(line)
             )
+
     total = len(records)
 
-    for idx, record in enumerate(records, start=1):
+    for idx, record in enumerate(
+        records,
+        start=1,
+    ):
         try:
             transcript = transcribe(
-                record["segment_path"]
+                record["audio_path"],
+                record["start"],
+                record["end"],
             )
 
             record["transcript"] = transcript
@@ -70,7 +93,8 @@ def update_segments_metadata(
 
         except Exception as e:
             print(
-                f"Failed: {record['segment_path']}"
+                f"Failed: {record['video_id']} "
+                f"{record['start']}-{record['end']}"
             )
             print(e)
 
