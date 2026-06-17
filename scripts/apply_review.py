@@ -137,5 +137,8 @@ def apply_review():
     print(f"\nSaved approved segments to: {final_path}")
     print(f"Saved rejected segments to: {rejected_path}")
 
-if __name__ == "__main__":
+def main():
     apply_review()
+
+# if __name__ == "__main__":
+#     main()

@@ -144,5 +144,8 @@ def assign_speakers():
     )
 
 
-if __name__ == "__main__":
+def main():
     assign_speakers()
+
+# if __name__ == "__main__":
+#     main()

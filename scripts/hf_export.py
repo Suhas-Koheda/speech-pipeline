@@ -340,7 +340,7 @@ CC-BY-4.0
     print(f"Generated dataset card: {output_path}")
 
 
-if __name__ == "__main__":
+def main():
     import argparse
     parser = argparse.ArgumentParser(description="HuggingFace Dataset Export")
     parser.add_argument("--repo", type=str, help="HuggingFace repository name (e.g. username/repo)")
@@ -361,3 +361,6 @@ if __name__ == "__main__":
         dataset_name="tts-training-dataset",
         description="High-quality TTS training dataset with emotion and style tags",
     )
+
+# if __name__ == "__main__":
+#     main()

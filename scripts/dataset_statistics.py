@@ -595,6 +595,9 @@ def generate_html_report(stats, output_path="../data/statistics.html"):
     print(f"Generated HTML report at: {output_path}")
 
 
-if __name__ == "__main__":
+def main():
     stats = calculate_statistics()
     generate_html_report(stats)
+
+# if __name__ == "__main__":
+#     main()

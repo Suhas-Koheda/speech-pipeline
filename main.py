@@ -82,10 +82,11 @@ def run_step(step_idx, step_info):
     
     start_time = time.time()
     
-    # Run script with CWD set to 'scripts' so relative paths resolve correctly
     try:
+        # Execute module.main() via python -c to run the commented main block
+        module_name = script.replace(".py", "")
         process = subprocess.Popen(
-            [sys.executable, script],
+            [sys.executable, "-c", f"import {module_name}; {module_name}.main()"],
             cwd="scripts",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

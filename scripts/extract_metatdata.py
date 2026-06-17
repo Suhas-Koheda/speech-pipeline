@@ -137,7 +137,10 @@ def collect_metadata(file_path: str):
     )
 
 
-if __name__ == "__main__":
+def main():
     collect_metadata(
         "../links.txt"
     )
+
+# if __name__ == "__main__":
+#     main()

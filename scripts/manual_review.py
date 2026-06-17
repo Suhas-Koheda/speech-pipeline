@@ -209,7 +209,7 @@ def filter_by_acceptance(
     print(f"Saved rejected dataset to: {rejected_path}")
 
 
-if __name__ == "__main__":
+def main():
     import argparse
     parser = argparse.ArgumentParser(description="Manual Review Workflow")
     parser.add_argument("--generate", action="store_true", help="Generate review.csv")
@@ -226,3 +226,6 @@ if __name__ == "__main__":
             generate_review_csv()
         else:
             parser.print_help()
+
+# if __name__ == "__main__":
+#     main()

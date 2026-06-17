@@ -294,5 +294,8 @@ def apply_quality_filters(
     return passed, failed, total
 
 
-if __name__ == "__main__":
+def main():
     apply_quality_filters()
+
+# if __name__ == "__main__":
+#     main()

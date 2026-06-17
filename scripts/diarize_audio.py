@@ -11,6 +11,7 @@ import os
 import json
 import tempfile
 import glob
+import time
 import soundfile as sf
 from pathlib import Path
 from dotenv import load_dotenv
@@ -22,6 +23,30 @@ from sarvamai import SarvamAI
 
 # Resolve project root path
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+# Test mode flag: if True, processes only the first video in the list.
+TEST_MODE = False
+
+def retry_api_call(func, *args, retries=3, initial_delay=2.0, backoff_factor=2.0, **kwargs):
+    """
+    Retries an API call in case of network/server failures with exponential backoff.
+    """
+    delay = initial_delay
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_exc = e
+            func_name = func.__name__ if hasattr(func, "__name__") else str(func)
+            print(f"[Attempt {attempt}/{retries}] API call to '{func_name}' failed: {e}")
+            if attempt == retries:
+                raise e
+            print(f"Waiting {delay:.1f}s before retrying...")
+            time.sleep(delay)
+            delay *= backoff_factor
+    if last_exc:
+        raise last_exc
 
 def save_stats(processed, failed, speakers, turns):
     stats = {
@@ -81,6 +106,15 @@ def diarize_audio(metadata):
             videos_failed += 1
             continue
             
+        # Check if already processed and skip
+        if "speaker_data" in video and video["speaker_data"]:
+            print(f"Skipping already processed video: {title}")
+            for sp_name, turns in video["speaker_data"].items():
+                all_unique_speakers.add(sp_name)
+                total_turns += len(turns)
+            videos_processed += 1
+            continue
+            
         # Resolve path relative to project root
         if audio_path:
             abs_audio_path = ROOT_DIR / audio_path.replace("../", "")
@@ -92,88 +126,132 @@ def diarize_audio(metadata):
             videos_failed += 1
             continue
             
-        print(f"\nProcessing video: {title}")
+        # Debugging logs before upload (Issue 2)
+        file_size_bytes = abs_audio_path.stat().st_size
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        print(f"\n--- Investigating Audio File for Upload ---")
+        print(f"Video Title: {title}")
+        print(f"Audio Path: {abs_audio_path}")
+        print(f"Audio Path Absolute: {abs_audio_path.resolve()}")
+        print(f"File Exists: {abs_audio_path.exists()}")
+        print(f"File Size: {file_size_bytes} bytes ({file_size_mb:.2f} MB)")
+        print(f"----------------------------------------")
         
         try:
-            # 1. Get audio duration
+            # Get audio duration
             info = sf.info(abs_audio_path)
             duration = info.duration
             
-            # 2. Call Sarvam Diarization via Batch API
-            print("Creating batch speech-to-text job with diarization...")
-            job = client.speech_to_text_job.create_job(
-                model="saaras:v3",
-                mode="transcribe",
-                language_code="en-IN",  # universal English/multilingual code
-                with_diarization=True
-            )
-            
-            print(f"Uploading file: {abs_audio_path.name}")
-            job.upload_files(file_paths=[str(abs_audio_path)])
-            
-            print("Starting batch job...")
-            job.start()
-            
-            print("Waiting for job to complete (polling)...")
-            job.wait_until_complete()
-            
-            # 3. Download and parse results
-            speaker_metadata = {}
-            num_speakers = 0
-            num_turns = 0
-            
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                job.download_outputs(output_dir=tmp_dir)
-                json_files = glob.glob(os.path.join(tmp_dir, "*.json"))
-                if not json_files:
-                    raise ValueError("Failed to download or find results JSON.")
-                    
-                with open(json_files[0], "r", encoding="utf-8") as f:
-                    result = json.load(f)
+            # Use a temporary directory and symlink to ensure an ASCII-only filename is sent to Sarvam API
+            with tempfile.TemporaryDirectory() as upload_tmp_dir:
+                temp_audio_path = Path(upload_tmp_dir) / f"{video_id}.wav"
+                try:
+                    os.symlink(abs_audio_path.resolve(), temp_audio_path)
+                    print(f"Created temporary symlink for upload: {temp_audio_path}")
+                except Exception as sym_err:
+                    print(f"Symlink failed ({sym_err}). Copying file instead...")
+                    import shutil
+                    shutil.copy(abs_audio_path, temp_audio_path)
                 
-                # Save raw response for ASR reuse
-                save_transcript_response(video_id, result)
+                # Call Sarvam Diarization via Batch API with retries
+                print("Creating batch speech-to-text job with diarization...")
+                job = retry_api_call(
+                    client.speech_to_text_job.create_job,
+                    model="saaras:v3",
+                    mode="transcribe",
+                    language_code="unknown",
+                    with_diarization=True
+                )
+                
+                print(f"Uploading file: {temp_audio_path.name}")
+                upload_success = retry_api_call(job.upload_files, file_paths=[str(temp_audio_path)])
+                print(f"Upload success response: {upload_success}")
+                
+                # Validation before job start (Issue 4)
+                if not upload_success:
+                    raise ValueError("No files were uploaded to Sarvam. Aborting job.")
                     
-                # Extract entries
-                entries = []
-                if "diarized_transcript" in result:
-                    entries = result["diarized_transcript"].get("entries", [])
-                elif "entries" in result:
-                    entries = result["entries"]
-                    
-                # Group into PyAnote speaker_data format
-                for entry in entries:
-                    sp_id = entry.get("speaker_id", "0")
-                    # Format to SPEAKER_XX
-                    try:
-                        sp_name = f"SPEAKER_{int(sp_id):02d}"
-                    except ValueError:
-                        sp_name = f"SPEAKER_{sp_id}"
+                print("Starting batch job...")
+                retry_api_call(job.start)
+                
+                print("Waiting for job to complete (polling)...")
+                retry_api_call(job.wait_until_complete)
+                
+                # Download and parse results
+                speaker_metadata = {}
+                num_speakers = 0
+                num_turns = 0
+                
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    print("Downloading outputs...")
+                    retry_api_call(job.download_outputs, output_dir=tmp_dir)
+                    json_files = glob.glob(os.path.join(tmp_dir, "*.json"))
+                    if not json_files:
+                        raise ValueError("Failed to download or find results JSON.")
                         
-                    start = float(entry.get("start_time_seconds", 0.0))
-                    end = float(entry.get("end_time_seconds", 0.0))
+                    with open(json_files[0], "r", encoding="utf-8") as f:
+                        result = json.load(f)
                     
-                    if sp_name not in speaker_metadata:
-                        speaker_metadata[sp_name] = []
-                    speaker_metadata[sp_name].append({
-                        "start": start,
-                        "end": end
-                    })
-                    all_unique_speakers.add(sp_name)
-                    num_turns += 1
-                    total_turns += 1
+                    # Save raw response for ASR reuse
+                    save_transcript_response(video_id, result)
+                        
+                    # Extract entries
+                    entries = []
+                    if "diarized_transcript" in result:
+                        entries = result["diarized_transcript"].get("entries", [])
+                    elif "entries" in result:
+                        entries = result["entries"]
+                        
+                    # Group into PyAnote speaker_data format
+                    for entry in entries:
+                        sp_id = entry.get("speaker_id", "0")
+                        # Format to SPEAKER_XX
+                        try:
+                            sp_name = f"SPEAKER_{int(sp_id):02d}"
+                        except ValueError:
+                            sp_name = f"SPEAKER_{sp_id}"
+                            
+                        start = float(entry.get("start_time_seconds", 0.0))
+                        end = float(entry.get("end_time_seconds", 0.0))
+                        
+                        if sp_name not in speaker_metadata:
+                            speaker_metadata[sp_name] = []
+                        speaker_metadata[sp_name].append({
+                            "start": start,
+                            "end": end
+                        })
+                        all_unique_speakers.add(sp_name)
+                        num_turns += 1
+                        total_turns += 1
+                        
+                    num_speakers = len(speaker_metadata)
                     
-                num_speakers = len(speaker_metadata)
+                # Store in video metadata
+                video["speaker_data"] = speaker_metadata
+                videos_processed += 1
                 
-            # Store in video metadata
-            video["speaker_data"] = speaker_metadata
-            videos_processed += 1
-            
-            # Progress log
-            print(f"Progress Log - Video: '{title}'")
-            print(f"  Duration: {duration:.2f}s")
-            print(f"  Speakers detected: {num_speakers}")
-            print(f"  Turns detected: {num_turns}")
+                # Get final status of job for logging
+                final_status = retry_api_call(job.get_status)
+                
+                # Transcript & Diarization details
+                has_transcripts = "No"
+                has_diarization = "No"
+                if entries:
+                    has_transcripts = f"Yes ({len(entries)} entries)"
+                    if any(entry.get("speaker_id") is not None for entry in entries):
+                        has_diarization = "Yes"
+                        
+                # Improved logging (Issue 5)
+                print(f"\n==================================================")
+                print(f"Video title:          {title}")
+                print(f"Audio path:           {abs_audio_path}")
+                print(f"File size MB:         {file_size_mb:.2f} MB")
+                print(f"Upload success:       {upload_success}")
+                print(f"Job ID:               {job.job_id}")
+                print(f"Job status:           {final_status.job_state}")
+                print(f"Transcript status:    {has_transcripts}")
+                print(f"Diarization status:   {has_diarization}")
+                print(f"==================================================\n")
             
         except Exception as e:
             print(f"Error processing video '{title}': {e}")
@@ -186,31 +264,39 @@ def diarize_audio(metadata):
     
     return metadata
 
-if __name__ == "__main__":
-    from download_audio import get_audio
-    from extract_metatdata import collect_metadata
-    
-    # Run setup steps using absolute metadata path
+def main():
+    # Validation: metadata.json must exist (Issue 1)
     metadata_path = ROOT_DIR / "data" / "metadata.json"
-    links_path = ROOT_DIR / "links.txt"
-    
-    # Perform download if files are missing or update metadata
-    if links_path.exists():
-        collect_metadata(str(links_path))
-    else:
-        print(f"Warning: {links_path} not found.")
+    if not metadata_path.exists():
+        raise FileNotFoundError(
+            f"Required metadata file not found at: {metadata_path.resolve()}.\n"
+            "Please ensure you run Step 1 (Metadata Ingestion & Audio Download) first."
+        )
         
-    get_audio(str(metadata_path))
-    
-    if metadata_path.exists():
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-            
-        metadata = diarize_audio(metadata)
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
         
-        with open(metadata_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=4)
-            
-        print(f"Successfully updated metadata with diarization at: {metadata_path}")
+    if not metadata:
+        print("No videos found in metadata.json. Aborting.")
+        return
+        
+    # Small-file test mode (Issue 6)
+    if TEST_MODE:
+        print(f"\n[TEST MODE ACTIVE] Processing only the first video in metadata.json.")
+        metadata_to_process = metadata[:1]
     else:
-        print(f"Error: {metadata_path} not found, cannot apply diarization.")
+        metadata_to_process = metadata
+        
+    processed_metadata = diarize_audio(metadata_to_process)
+    
+    # Merge test results back into original metadata if test mode was active
+    if TEST_MODE and processed_metadata:
+        metadata[0] = processed_metadata[0]
+        
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=4)
+        
+    print(f"Successfully updated metadata with diarization at: {metadata_path.resolve()}")
+
+# if __name__ == "__main__":
+#     main()

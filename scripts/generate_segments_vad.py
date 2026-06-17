@@ -284,13 +284,7 @@ def process_audio(metadata):
     )
 
 
-if __name__ == "__main__":
-    # collect_metadata(
-    #     "../links.txt"
-    # )
-    # get_audio(
-    #     "../data/metadata.json"
-    # )
+def main():
     with open(
         "../data/metadata.json",
         "r",
@@ -299,3 +293,6 @@ if __name__ == "__main__":
         metadata = json.load(f)
 
     process_audio(metadata)
+
+# if __name__ == "__main__":
+#     main()

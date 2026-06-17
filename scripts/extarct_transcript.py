@@ -144,5 +144,8 @@ def update_segments_metadata(
     )
 
 
-if __name__ == "__main__":
+def main():
     update_segments_metadata()
+
+# if __name__ == "__main__":
+#     main()

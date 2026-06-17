@@ -302,5 +302,8 @@ def tag_emotions(
     print(f"\nSaved to: {output_path}")
 
 
-if __name__ == "__main__":
+def main():
     tag_emotions()
+
+# if __name__ == "__main__":
+#     main()

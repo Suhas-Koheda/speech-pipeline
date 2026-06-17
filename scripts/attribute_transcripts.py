@@ -125,5 +125,8 @@ def attribute_transcripts():
         print(f"Average characters per segment: {total_chars / successful:.1f}")
     print(f"Saved updated segment records to: {segments_path}")
 
-if __name__ == "__main__":
+def main():
     attribute_transcripts()
+
+# if __name__ == "__main__":
+#     main()

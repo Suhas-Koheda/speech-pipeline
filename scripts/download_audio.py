@@ -129,13 +129,16 @@ def get_audio(
     )
 
 
-if __name__ == "__main__":
+def main():
     collect_metadata(
         "../links.txt"
     )
     get_audio(
         "../data/metadata.json"
     )
+
+# if __name__ == "__main__":
+#     main()
 # https://www.youtube.com/watch?v=9QpkWAyG-eE&t=203s&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
 # https://www.youtube.com/watch?v=TdVWQ8jtZRM&t=1022s&pp=ygUSdGVsYW5nYW5hIHBvZGNhc3Rz
 

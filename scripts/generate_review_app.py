@@ -907,5 +907,8 @@ def generate_app():
     print("5. Run: python scripts/apply_review.py to generate final and rejected metadata files.")
 
 
-if __name__ == "__main__":
+def main():
     generate_app()
+
+# if __name__ == "__main__":
+#     main()
