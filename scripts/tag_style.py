@@ -1,9 +1,9 @@
 """
-Transcript Normalization & Emotion/Style Tagging Stage.
+Emotion / Style Tagging Stage.
 
-Performs Telugu-to-English code-mixed transcript normalization and speaking style
-classification in a single, parallelized, optimized Sarvam LLM call (sarvam-30b)
-to minimize latency and credit consumption.
+Classifies the speaking style / emotion of transcripts using a single,
+parallelized, optimized Sarvam LLM call (sarvam-30b) with reasoning disabled.
+Does NOT modify or rewrite the transcript text.
 """
 
 import os
@@ -23,13 +23,11 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 # Load environment variables
 load_dotenv()
 
-# Valid style / emotion labels for TTS training annotation
-VALID_EMOTIONS = {
-    "neutral", "conversational", "formal", "excited", "enthusiastic",
-    "happy", "humorous", "storytelling", "informative", "educational",
-    "interview", "discussion", "debate", "questioning", "persuasive",
-    "motivational", "inspirational", "serious", "analytical", "reflective",
-    "emotional", "sad", "angry"
+# Valid style labels
+VALID_STYLES = {
+    "conversational", "formal", "informative", "educational", "storytelling",
+    "interview", "discussion", "motivational", "humorous", "analytical",
+    "excited", "happy", "sad", "angry", "neutral"
 }
 
 class ProgressTracker:
@@ -50,11 +48,6 @@ class ProgressTracker:
             self.total_latency += duration
             self.retries += retries_cnt
             avg_time = self.total_latency / self.completed if self.completed > 0 else 0.0
-            # Print in the exact requested format:
-            # [32/190]
-            # style=discussion
-            # time=1.8s
-            # avg=2.1s/request
             print(f"[{self.completed}/{self.total}]")
             print(f"style={style}")
             print(f"time={duration:.1f}s")
@@ -74,88 +67,47 @@ class ProgressTracker:
             print(f"avg={avg_time:.1f}s/request")
             sys.stdout.flush()
 
-def normalize_and_tag_with_retry(text):
+def tag_style_with_retry(text):
     """
-    Query Sarvam-30b model to perform normalization and emotion/style tagging in a single call.
-    Uses exponential backoff for retries on 429, 500, 503, and timeouts.
-    Returns (normalized_transcript, style, confidence, was_normalized, retries_used, duration, success).
+    Query Sarvam-30b to tag speaking style.
+    Uses exponential backoff for retries on rate limits or failures.
+    Returns (style, confidence, retries_used, duration, success).
     """
     api_key = os.getenv("SARVAM_API_KEY")
     if not api_key:
         print("Warning: SARVAM_API_KEY is not set.")
-        return text, "neutral", 1.0, False, 0, 0.0, False
+        return "neutral", 1.0, 0, 0.0, False
         
     client = SarvamAI(api_subscription_key=api_key)
     
-    prompt = f"""You are an expert speech dataset annotator.
+    prompt = f"""You are a speech dataset annotator.
 
-Your task is to:
-1. Normalize Telugu-English code-mixed transcripts.
-2. Classify speaking style and emotion.
+Classify the speaking style of the transcript.
 
-Rules:
+Do not rewrite, correct, normalize, translate, or modify the transcript.
 
-Transcript normalization:
-* Keep Telugu words in Telugu script.
-* Convert English words written in Telugu script back to English.
-* Preserve meaning exactly.
-* Do not translate Telugu.
-* Do not rewrite content.
-* Return the cleaned transcript.
+Choose exactly one label:
+* conversational
+* formal
+* informative
+* educational
+* storytelling
+* interview
+* discussion
+* motivational
+* humorous
+* analytical
+* excited
+* happy
+* sad
+* angry
+* neutral
 
-Emotion/style classification:
-Choose exactly one label from:
-- neutral
-- conversational
-- formal
-- excited
-- enthusiastic
-- happy
-- humorous
-- storytelling
-- informative
-- educational
-- interview
-- discussion
-- debate
-- questioning
-- persuasive
-- motivational
-- inspirational
-- serious
-- analytical
-- reflective
-- emotional
-- sad
-- angry
-
-Guidelines:
-* Podcasts -> conversational, discussion, interview
-* News -> informative, formal
-* Lectures -> educational, informative
-* Personal experiences -> storytelling, reflective
-* Technical explanations -> analytical
-* Motivational talks -> motivational, inspirational
-* Strong positive energy -> enthusiastic or excited
-* Arguments -> debate or angry
-* Questions directed to audience -> questioning
-
-Return ONLY valid JSON:
+Return ONLY JSON:
 {{
-  "normalized_transcript": "normalized transcript text",
-  "emotion": "chosen_label",
-  "emotion_confidence": 0.95
+"style": "chosen_style",
+"confidence": 0.95
 }}
-
-Input:
-ఐ విల్ టెల్ యు కేరళ ఇస్ హావింగ్ 20 సీట్స్
-Output:
-{{"normalized_transcript": "I will tell you Kerala is having 20 seats", "emotion": "conversational", "emotion_confidence": 0.95}}
-
-Input:
-ఈ model చాలా powerful గా ఉంది
-Output:
-{{"normalized_transcript": "ఈ model చాలా powerful గా ఉంది", "emotion": "informative", "emotion_confidence": 0.90}}
 
 Input:
 {text}
@@ -167,12 +119,11 @@ Output:"""
     
     for attempt in range(4):  # attempt 0 is initial try, 1-3 are retries
         try:
-            # Explicitly disable reasoning as requested: reasoning_effort=None
             response = client.chat.completions(
                 model="sarvam-30b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
-                max_tokens=150,
+                max_tokens=100,
                 reasoning_effort=None
             )
             
@@ -189,20 +140,17 @@ Output:"""
                 content = content[:-3]
                 
             data = json.loads(content.strip())
-            norm_text = data.get("normalized_transcript", text)
-            emotion = data.get("emotion", "neutral")
-            confidence = float(data.get("emotion_confidence", 1.0))
+            style = data.get("style", "neutral").lower().strip()
+            confidence = float(data.get("confidence", 1.0))
             
-            if emotion not in VALID_EMOTIONS:
-                emotion = "neutral"
+            if style not in VALID_STYLES:
+                style = "neutral"
                 
-            was_normalized = (norm_text.strip() != text.strip())
             duration = time.time() - start_time
-            return norm_text, emotion, confidence, was_normalized, retries_used, duration, True
+            return style, confidence, retries_used, duration, True
             
         except Exception as e:
             err_str = str(e).lower()
-            # Check for retryable conditions
             is_retryable = any(status in err_str for status in ["429", "500", "503", "rate limit", "timeout", "busy", "remote"]) or "timeout" in err_str
             
             if is_retryable and attempt < 3:
@@ -211,41 +159,37 @@ Output:"""
                 time.sleep(sleep_time)
             else:
                 duration = time.time() - start_time
-                return text, "neutral", 1.0, False, retries_used, duration, False
+                return "neutral", 1.0, retries_used, duration, False
 
 def process_record_task(record, idx, tracker):
     """Worker task that processes a single segment record."""
     transcript = record.get("transcript", "")
-    norm_text, emotion, confidence, was_normalized, retries_used, duration, success = normalize_and_tag_with_retry(transcript)
+    style, confidence, retries_used, duration, success = tag_style_with_retry(transcript)
     
     if success:
-        tracker.record_success(duration, emotion, retries_used)
+        tracker.record_success(duration, style, retries_used)
     else:
         tracker.record_failure(duration, retries_used)
         
-    # Store formats requested:
-    # 1. raw_transcript, transcript, style, style_confidence
-    # 2. emotion, emotion_confidence, was_normalized, normalized
-    record["raw_transcript"] = record.get("raw_transcript", transcript)
-    record["transcript"] = norm_text
-    record["style"] = emotion
+    # Store style and style_confidence as requested
+    record["style"] = style
     record["style_confidence"] = confidence
-    record["emotion"] = emotion
+    
+    # Store emotion and emotion_confidence for compatibility
+    record["emotion"] = style
     record["emotion_confidence"] = confidence
-    record["normalized_transcript"] = norm_text
-    record["was_normalized"] = was_normalized
-    record["normalized"] = True
     
     return record
 
 def main():
     global_start = time.time()
     
-    input_path = ROOT_DIR / "data" / "segments_metadata.jsonl"
-    output_path = ROOT_DIR / "data" / "segments_metadata_normalized.jsonl"
+    input_path = ROOT_DIR / "data" / "segments_metadata_filtered.jsonl"
+    output_path = ROOT_DIR / "data" / "segments_metadata_emotions.jsonl"
     
     if not input_path.exists():
-        print(f"Error: Input file does not exist: {input_path}")
+        print(f"Error: Filtered metadata file does not exist: {input_path}")
+        print("Please run Quality Filtering step first.")
         return
         
     records = []
@@ -255,7 +199,7 @@ def main():
                 records.append(json.loads(line))
                 
     total_segments = len(records)
-    print(f"\n=== Transcript Normalization & Emotion Tagging Stage ===")
+    print(f"\n=== Speaking Style & Emotion Tagging Stage ===")
     print(f"Processing {total_segments} segments concurrently using 2 workers...")
     
     tracker = ProgressTracker(total_segments)
@@ -265,14 +209,10 @@ def main():
         futures = [executor.submit(process_record_task, record, idx, tracker) for idx, record in enumerate(records)]
         updated_records = [future.result() for future in futures]
         
-    # Count final outcomes and statistics
-    normalized_count = sum(1 for r in updated_records if r.get("was_normalized", False))
-    unchanged_count = total_segments - normalized_count
-    
-    emotion_distribution = defaultdict(int)
+    style_distribution = defaultdict(int)
     for r in updated_records:
         style = r.get("style", "neutral")
-        emotion_distribution[style] += 1
+        style_distribution[style] += 1
         
     # Save output metadata
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -283,15 +223,12 @@ def main():
     # Generate statistics JSON
     stats = {
         "total_segments": total_segments,
-        "normalized_segments": normalized_count,
-        "unchanged_segments": unchanged_count,
-        "emotion_distribution": dict(emotion_distribution)
+        "style_distribution": dict(style_distribution)
     }
-    stats_path = ROOT_DIR / "data" / "normalization_stats.json"
+    stats_path = ROOT_DIR / "data" / "tagging_stats.json"
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=4)
         
-    # Generate Benchmark Output
     total_runtime_min = (time.time() - global_start) / 60.0
     avg_req_time = tracker.total_latency / total_segments if total_segments > 0 else 0.0
     
@@ -305,5 +242,5 @@ def main():
     print("Reasoning: Disabled")
     sys.stdout.flush()
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

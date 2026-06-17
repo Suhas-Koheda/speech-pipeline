@@ -28,3 +28,8 @@ audio/
 *downloaded.txt
 data/
 segments/
+datasets/
+review/data.json
+review_results.csv
+review/review_results.csv
+*.log

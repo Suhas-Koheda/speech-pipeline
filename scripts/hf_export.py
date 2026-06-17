@@ -64,6 +64,8 @@ def prepare_dataset_record(segment_record):
         "transcript": segment_record.get("transcript", ""),
         "language": segment_record.get("language", "unknown"),
         "speaker_id": segment_record.get("dominant_speaker", "UNKNOWN"),
+        "style": segment_record.get("style", "neutral"),
+        "style_confidence": float(segment_record.get("style_confidence", 1.0)),
         "emotion": segment_record.get("emotion", "neutral"),
         "speaker_purity_score": float(speaker_purity_score),
     }
@@ -143,8 +145,8 @@ def create_hf_dataset(
     if push_to_hub:
         hub_token = os.getenv("HF_TOKEN")
         if not hub_token:
-            print("Warning: HF_TOKEN not found in environment variables, skipping Hub upload")
-        elif not hub_repo_name:
+            hub_token = None
+        if not hub_repo_name:
             print("Warning: hub_repo_name not specified, skipping Hub upload")
         else:
             try:
@@ -243,19 +245,19 @@ def export_dataset(
     
     print(f"\n=== Exporting Dataset ===")
     
-    for split_name, split_dataset in dataset_dict.items():
+    for split_name, sub_dataset in dataset_dict.items():
         output_path = output_dir / split_name
         
         if output_format == "parquet":
-            split_dataset.to_parquet(str(output_path))
+            sub_dataset.to_parquet(str(output_path))
             print(f"Exported {split_name} to parquet")
         
         elif output_format == "csv":
-            split_dataset.to_csv(str(output_path))
+            sub_dataset.to_csv(str(output_path))
             print(f"Exported {split_name} to CSV")
         
         elif output_format == "arrow":
-            split_dataset.save_to_disk(str(output_path))
+            sub_dataset.save_to_disk(str(output_path))
             print(f"Exported {split_name} to Arrow")
     
     print(f"\nDataset exported to: {output_dir}")
@@ -345,7 +347,7 @@ def main():
     parser = argparse.ArgumentParser(description="HuggingFace Dataset Export")
     parser.add_argument("--repo", type=str, help="HuggingFace repository name (e.g. username/repo)")
     parser.add_argument("--push", action="store_true", help="Push dataset to HuggingFace Hub")
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
     
     # Create and export dataset
     export_dataset(

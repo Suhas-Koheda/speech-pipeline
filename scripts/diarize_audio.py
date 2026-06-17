@@ -219,7 +219,7 @@ def diarize_audio(metadata):
                     job = retry_api_call(
                         client.speech_to_text_job.create_job,
                         model="saaras:v3",
-                        mode="transcribe",
+                        mode="codemix",
                         language_code="unknown",
                         with_diarization=True
                     )

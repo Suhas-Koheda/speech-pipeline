@@ -142,10 +142,10 @@ def calculate_statistics(
         # 4. Emotion Distribution
         emotion_stats = defaultdict(lambda: {"count": 0, "duration": 0, "confidence": []})
         for segment, dur in zip(segments_to_analyze, durations):
-            emotion = segment.get("emotion", "neutral")
+            emotion = segment.get("style", segment.get("emotion", "neutral"))
             emotion_stats[emotion]["count"] += 1
             emotion_stats[emotion]["duration"] += dur
-            conf = segment.get("emotion_confidence", 1.0)
+            conf = segment.get("style_confidence", segment.get("emotion_confidence", 1.0))
             emotion_stats[emotion]["confidence"].append(conf)
             
         for emotion, data in emotion_stats.items():

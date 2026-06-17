@@ -3,7 +3,7 @@
 Speech Pipeline Orchestrator
 
 This script coordinates the execution of the entire dataset curation pipeline
-from reading links.txt to generating the interactive HTML review tool.
+from reading links.txt to exporting the finalized TTS dataset.
 """
 
 import sys
@@ -22,39 +22,45 @@ RESET = "\033[0m"
 PIPELINE_STEPS = [
     {
         "step": 1,
-        "name": "Metadata Ingestion & Audio Download",
-        "script": "download_audio.py",
-        "description": "Reads links.txt, extracts metadata, and downloads full-length WAV audio files."
+        "name": "Metadata Ingestion",
+        "script": "extract_metatdata.py",
+        "description": "Reads links.txt and extracts YouTube video metadata."
     },
     {
         "step": 2,
-        "name": "Sarvam ASR, Diarization & Audio Slicing",
+        "name": "Audio Download",
+        "script": "download_audio.py",
+        "description": "Downloads full-length WAV audio files."
+    },
+    {
+        "step": 3,
+        "name": "Sarvam ASR & Diarization",
         "script": "diarize_audio.py",
         "description": "Performs full-audio transcription, speaker diarization, splits long chunks, and slices candidate WAVs."
     },
     {
-        "step": 3,
-        "name": "Transcript Normalization & Emotion Tagging",
-        "script": "normalize_transcripts.py",
-        "description": "Normalizes English words written in Telugu script and tags speaking style / emotion using a single Sarvam LLM call."
-    },
-    {
         "step": 4,
-        "name": "TTS Quality Filtering",
+        "name": "Quality Filtering",
         "script": "quality_filter.py",
         "description": "Applies strict duration, transcript length, and speaker verification filters."
     },
     {
         "step": 5,
-        "name": "Dataset Validation & Diagnostics",
-        "script": "validate_dataset.py",
-        "description": "Validates transcripts, lexical repetition, duration limits, and speaker assignments, and produces diagnostic reports."
+        "name": "Emotion / Style Tagging",
+        "script": "tag_style.py",
+        "description": "Tags speaking style and emotion using a single Sarvam-30b LLM call with reasoning disabled."
     },
     {
         "step": 6,
-        "name": "HTML Review Tool Generation",
-        "script": "generate_review_app.py",
-        "description": "Creates the self-contained interactive browser-based review dashboard."
+        "name": "Dataset Validation",
+        "script": "validate_dataset.py",
+        "description": "Validates transcripts, repetition, durations, and speaker assignments."
+    },
+    {
+        "step": 7,
+        "name": "Export",
+        "script": "hf_export.py",
+        "description": "Exports final TTS training dataset to HuggingFace dataset format."
     }
 ]
 
@@ -104,7 +110,7 @@ def print_help():
     print(f"{BOLD}Speech Pipeline Runner CLI{RESET}")
     print("Usage:")
     print("  python3 main.py          - Run the complete pipeline end-to-end")
-    print("  python3 main.py --step N - Run only a specific step (1-8)")
+    print("  python3 main.py --step N - Run only a specific step (1-7)")
     print("  python3 main.py --from N - Run the pipeline starting from step N")
     print("\nAvailable Pipeline Steps:")
     for step in PIPELINE_STEPS:
@@ -132,7 +138,7 @@ def main():
             start_step = step_num
             end_step = step_num
             run_all = False
-        except (ValueError, IndexErr):
+        except (ValueError, IndexError):
             print(f"{RED}Error: --step requires a number between 1 and {len(PIPELINE_STEPS)}.{RESET}")
             return
             
@@ -180,19 +186,13 @@ def main():
             sys.exit(1)
             
     total_elapsed = time.time() - global_start_time
-    print(f"{GREEN}{BOLD}=================================================={RESET}")
+    print(f"\n{GREEN}{BOLD}=================================================={RESET}")
     print(f"{GREEN}{BOLD}🎉 PIPELINE COMPLETED SUCCESSFULLY IN {total_elapsed/60:.1f} MIN{RESET}")
     print(f"{GREEN}{BOLD}=================================================={RESET}\n")
     
     if end_step == len(PIPELINE_STEPS):
-        review_html = Path("review/index.html").resolve()
-        print(f"{BOLD}Next Steps for Dataset Curation:{RESET}")
-        print(f"1. Open the review tool directly in Chrome:")
-        print(f"   {review_html}")
-        print(f"2. Audit the segments (Approve/Reject), and click 'Export Reviews (CSV)'.")
-        print(f"3. Place the downloaded 'review_results.csv' in the project 'data/' directory.")
-        print(f"4. Compile the final approved dataset by running:")
-        print(f"   python3 scripts/apply_review.py\n")
+        print("Dataset Export Complete")
+        print("Pipeline Finished Successfully")
 
 if __name__ == "__main__":
     main()

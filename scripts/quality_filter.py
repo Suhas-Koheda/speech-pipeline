@@ -263,9 +263,7 @@ def apply_quality_filters(input_path=None, output_path=None):
     return passed, failed, total
 
 def main():
-    input_path = ROOT_DIR / "data" / "segments_metadata_normalized.jsonl"
-    if not input_path.exists():
-        input_path = ROOT_DIR / "data" / "segments_metadata.jsonl"
+    input_path = ROOT_DIR / "data" / "segments_metadata.jsonl"
     apply_quality_filters(input_path=input_path)
 
 # if __name__ == "__main__":
