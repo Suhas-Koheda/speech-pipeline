@@ -297,14 +297,75 @@ def generate_app():
             color: var(--text-muted);
         }}
         
-        .transcript-box {{
-            background: rgba(99, 102, 241, 0.04);
-            border-left: 4px solid var(--primary);
-            border-radius: 0 12px 12px 0;
-            padding: 16px;
-            font-size: 1.1rem;
-            line-height: 1.6;
+        .transcript-editor-container {{
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 16px;
+        }}
+        
+        .transcript-editor {{
+            width: 100%;
             min-height: 100px;
+            background: rgba(99, 102, 241, 0.04);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 8px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 1.1rem;
+            padding: 12px;
+            line-height: 1.5;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s;
+        }}
+        
+        .transcript-editor:focus {{
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+        }}
+        
+        .transcript-options-wrapper {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+        
+        .transcript-option-card {{
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+        
+        .transcript-option-card:hover {{
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(99, 102, 241, 0.4);
+        }}
+        
+        .transcript-option-card.active {{
+            background: rgba(99, 102, 241, 0.08);
+            border-color: var(--primary);
+        }}
+        
+        .option-header {{
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        
+        .badge-normal {{
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
         }}
         
         .meta-grid {{
@@ -491,8 +552,28 @@ def generate_app():
                         </div>
                     </div>
                     
-                    <div class="transcript-box" id="transcript-text">
-                        Transcript loading...
+                    <div class="transcript-editor-container">
+                        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Transcript Text</label>
+                        <textarea class="transcript-editor" id="transcript-editor" placeholder="Transcript..." oninput="onTranscriptEditorInput()"></textarea>
+                        
+                        <div class="transcript-options-wrapper" id="transcript-options-container" style="display: none; margin-top: 10px;">
+                            <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; display: block;">Select version below to load into editor:</label>
+                            
+                            <div class="transcript-option-card" id="card-normalized" onclick="useTranscriptVersion('normalized')">
+                                <div class="option-header">
+                                    <span>Normalized Version</span>
+                                    <span class="badge-normal">sarvam-30b</span>
+                                </div>
+                                <div style="font-size: 0.95rem; color: var(--text-main);" id="opt-normalized-text"></div>
+                            </div>
+                            
+                            <div class="transcript-option-card" id="card-raw" onclick="useTranscriptVersion('raw')">
+                                <div class="option-header">
+                                    <span>Raw Version (Telugu Transliteration)</span>
+                                </div>
+                                <div style="font-size: 0.95rem; color: var(--text-main);" id="opt-raw-text"></div>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="meta-grid">
@@ -677,7 +758,8 @@ def generate_app():
                 document.getElementById('status-badge').innerText = "N/A";
                 document.getElementById('status-badge').className = "status-badge status-unreviewed";
                 document.getElementById('audio-player').src = "";
-                document.getElementById('transcript-text').innerText = "No transcripts to show.";
+                document.getElementById('transcript-editor').value = "";
+                document.getElementById('transcript-options-container').style.display = 'none';
                 document.getElementById('meta-lang').innerText = "N/A";
                 document.getElementById('meta-emotion').innerText = "N/A";
                 document.getElementById('meta-speaker').innerText = "N/A";
@@ -704,7 +786,7 @@ def generate_app():
             // Audio path is stored as relative to workspace root (e.g. "../segments/...")
             // If running review app directly from file, index.html is in "review/" directory,
             // so we can resolve the path directly.
-            let audioSrc = "../" + segment.segment_path.replace(/^\.\.\//, "");
+            let audioSrc = "../" + segment.segment_path.replace(/^\\.\\.\\//, "");
             
             const player = document.getElementById('audio-player');
             player.src = audioSrc;
@@ -714,8 +796,35 @@ def generate_app():
                 player.play().catch(e => console.log("Autoplay blocked:", e));
             }}
             
-            // Metadata
-            document.getElementById('transcript-text').innerText = segment.transcript || "--- (No Transcript) ---";
+            // Populate transcript editor and options
+            const dec = decisions[segment.segment_path];
+            let activeTranscript = segment.transcript || "";
+            if (dec && dec.transcript !== undefined) {{
+                activeTranscript = dec.transcript;
+            }}
+            document.getElementById('transcript-editor').value = activeTranscript;
+            
+            // If segment has raw_transcript and normalized_transcript, show the option cards
+            if (segment.raw_transcript && segment.normalized_transcript) {{
+                document.getElementById('transcript-options-container').style.display = 'flex';
+                document.getElementById('opt-normalized-text').innerText = segment.normalized_transcript;
+                document.getElementById('opt-raw-text').innerText = segment.raw_transcript;
+                
+                // Highlight active card based on matches
+                if (activeTranscript === segment.normalized_transcript) {{
+                    document.getElementById('card-normalized').classList.add('active');
+                    document.getElementById('card-raw').classList.remove('active');
+                }} else if (activeTranscript === segment.raw_transcript) {{
+                    document.getElementById('card-normalized').classList.remove('active');
+                    document.getElementById('card-raw').classList.add('active');
+                }} else {{
+                    document.getElementById('card-normalized').classList.remove('active');
+                    document.getElementById('card-raw').classList.remove('active');
+                }}
+            }} else {{
+                document.getElementById('transcript-options-container').style.display = 'none';
+            }}
+            
             document.getElementById('meta-lang').innerText = segment.language || "unknown";
             document.getElementById('meta-emotion').innerText = segment.emotion || "neutral";
             document.getElementById('meta-speaker').innerText = segment.dominant_speaker || segment.speaker_id || "UNKNOWN";
@@ -767,7 +876,8 @@ def generate_app():
             decisions[segment.segment_path] = {{
                 approved: true,
                 rejection_reason: "",
-                notes: document.getElementById('notes-textarea').value
+                notes: document.getElementById('notes-textarea').value,
+                transcript: document.getElementById('transcript-editor').value
             }};
             
             saveToLocalStorage();
@@ -783,7 +893,8 @@ def generate_app():
             decisions[segment.segment_path] = {{
                 approved: false,
                 rejection_reason: document.getElementById('rejection-select').value,
-                notes: document.getElementById('notes-textarea').value
+                notes: document.getElementById('notes-textarea').value,
+                transcript: document.getElementById('transcript-editor').value
             }};
             
             saveToLocalStorage();
@@ -813,6 +924,59 @@ def generate_app():
             }}
         }}
         
+        function onTranscriptEditorInput() {{
+            if (filteredIndices.length === 0) return;
+            const originalIndex = filteredIndices[currentIndex];
+            const segment = allSegments[originalIndex];
+            
+            if (!decisions[segment.segment_path]) {{
+                decisions[segment.segment_path] = {{
+                    approved: true,
+                    rejection_reason: "",
+                    notes: ""
+                }};
+            }}
+            decisions[segment.segment_path].transcript = document.getElementById('transcript-editor').value;
+            saveToLocalStorage();
+            
+            // Remove active highlighting from cards as the text is now custom edited
+            if (document.getElementById('card-normalized')) {{
+                document.getElementById('card-normalized').classList.remove('active');
+            }}
+            if (document.getElementById('card-raw')) {{
+                document.getElementById('card-raw').classList.remove('active');
+            }}
+        }}
+        
+        function useTranscriptVersion(version) {{
+            if (filteredIndices.length === 0) return;
+            const originalIndex = filteredIndices[currentIndex];
+            const segment = allSegments[originalIndex];
+            
+            let text = "";
+            if (version === 'normalized') {{
+                text = segment.normalized_transcript || segment.transcript || "";
+                document.getElementById('card-normalized').classList.add('active');
+                document.getElementById('card-raw').classList.remove('active');
+            }} else {{
+                text = segment.raw_transcript || segment.transcript || "";
+                document.getElementById('card-normalized').classList.remove('active');
+                document.getElementById('card-raw').classList.add('active');
+            }}
+            
+            document.getElementById('transcript-editor').value = text;
+            
+            if (!decisions[segment.segment_path]) {{
+                decisions[segment.segment_path] = {{
+                    approved: true,
+                    rejection_reason: "",
+                    notes: ""
+                }};
+            }}
+            decisions[segment.segment_path].transcript = text;
+            saveToLocalStorage();
+        }}
+        
         function prevSegment() {{
             if (currentIndex > 0) {{
                 currentIndex--;
@@ -829,8 +993,8 @@ def generate_app():
         
         // Export to CSV Function
         function exportCSV() {{
-            // Columns required: segment_path, approved, rejection_reason, notes
-            let csvContent = "segment_path,approved,rejection_reason,notes\\r\\n";
+            // Columns required: segment_path, approved, rejection_reason, notes, transcript
+            let csvContent = "segment_path,approved,rejection_reason,notes,transcript\\r\\n";
             
             allSegments.forEach(segment => {{
                 const path = segment.segment_path;
@@ -839,11 +1003,15 @@ def generate_app():
                 let approvedStr = "false";
                 let reason = "";
                 let notes = "";
+                let transcriptVal = segment.transcript || "";
                 
                 if (dec) {{
                     approvedStr = dec.approved ? "true" : "false";
                     reason = dec.rejection_reason || "";
                     notes = dec.notes || "";
+                    if (dec.transcript !== undefined) {{
+                        transcriptVal = dec.transcript;
+                    }}
                 }}
                 
                 // Escape quotes and wrap values
@@ -851,8 +1019,9 @@ def generate_app():
                 const escapedApproved = `"${{approvedStr.replace(/"/g, '""')}}"`;
                 const escapedReason = `"${{reason.replace(/"/g, '""')}}"`;
                 const escapedNotes = `"${{notes.replace(/"/g, '""')}}"`;
+                const escapedTranscript = `"${{transcriptVal.replace(/"/g, '""')}}"`;
                 
-                csvContent += `${{escapedPath}},${{escapedApproved}},${{escapedReason}},${{escapedNotes}}\\r\\n`;
+                csvContent += `${{escapedPath}},${{escapedApproved}},${{escapedReason}},${{escapedNotes}},${{escapedTranscript}}\\r\\n`;
             }});
             
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});

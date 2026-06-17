@@ -53,7 +53,8 @@ def apply_review():
                 decisions[path] = {
                     "approved": approved,
                     "rejection_reason": row.get("rejection_reason", "").strip(),
-                    "notes": row.get("notes", "").strip()
+                    "notes": row.get("notes", "").strip(),
+                    "transcript": row.get("transcript", "").strip()
                 }
     except Exception as e:
         print(f"Error reading CSV: {e}")
@@ -105,6 +106,8 @@ def apply_review():
         if dec:
             record["approved"] = dec["approved"]
             record["notes"] = dec["notes"]
+            if dec.get("transcript"):
+                record["transcript"] = dec["transcript"]
             
             if dec["approved"]:
                 record["rejection_reason"] = ""

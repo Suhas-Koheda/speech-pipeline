@@ -34,24 +34,30 @@ PIPELINE_STEPS = [
     },
     {
         "step": 3,
+        "name": "Transcript Normalization",
+        "script": "normalize_transcripts.py",
+        "description": "Identifies segments containing English words written in Telugu script and normalizes them back to English script."
+    },
+    {
+        "step": 4,
         "name": "TTS Quality Filtering",
         "script": "quality_filter.py",
         "description": "Applies strict duration, transcript length, and speaker verification filters."
     },
     {
-        "step": 4,
+        "step": 5,
         "name": "Emotion & Style Tagging",
         "script": "emotion_tagging.py",
         "description": "Applies LLM emotion / speaking-style classification using the official Sarvam SDK."
     },
     {
-        "step": 5,
+        "step": 6,
         "name": "Dataset Validation & Diagnostics",
         "script": "validate_dataset.py",
         "description": "Validates transcripts, lexical repetition, duration limits, and speaker assignments, and produces diagnostic reports."
     },
     {
-        "step": 6,
+        "step": 7,
         "name": "HTML Review Tool Generation",
         "script": "generate_review_app.py",
         "description": "Creates the self-contained interactive browser-based review dashboard."
@@ -133,7 +139,7 @@ def main():
             end_step = step_num
             run_all = False
         except (ValueError, IndexErr):
-            print(f"{RED}Error: --step requires a number between 1 and 8.{RESET}")
+            print(f"{RED}Error: --step requires a number between 1 and {len(PIPELINE_STEPS)}.{RESET}")
             return
             
     elif "--from" in args:
@@ -145,7 +151,7 @@ def main():
             start_step = step_num
             run_all = False
         except (ValueError, IndexError):
-            print(f"{RED}Error: --from requires a number between 1 and 8.{RESET}")
+            print(f"{RED}Error: --from requires a number between 1 and {len(PIPELINE_STEPS)}.{RESET}")
             return
 
     # Check that script directory exists
