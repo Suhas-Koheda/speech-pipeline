@@ -340,12 +340,8 @@ def diarize_audio(metadata):
                     "duration": dur,                      # final schema
                     "speaker": speaker,                   # final schema
                     "dominant_speaker": sp_name,          # legacy compat
-                    "speaker_overlap": {sp_name: dur} if sp_name != "UNKNOWN" else {},
-                    "speaker_purity_score": 1.0 if sp_name != "UNKNOWN" else 0.0,
                     "transcript": transcript_text,
                     "language": result.get("language_code", "unknown"),
-                    "transcription_confidence": float(result.get("confidence", 1.0)),
-                    "quality_score": 1.0,
                     "emotion": "neutral",                 # updated by tagging step
                     "quality_issues": []
                 }

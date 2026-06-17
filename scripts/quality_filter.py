@@ -91,9 +91,12 @@ def check_duration(duration):
     max_dur = QUALITY_THRESHOLDS["max_duration"]
     return min_dur <= duration <= max_dur
 
-def calculate_quality_score(record, audio_path):
+def calculate_quality_issues(record, audio_path):
     """
-    Calculate quality score and identify rejection reasons for a segment.
+    Identify quality issues for a segment.
+    Returns a list of issue strings. Empty list = passed.
+    speaker_purity_score = dominant_speaker_duration / segment_duration
+      (real measurement, preserved).
     """
     issues = []
     
@@ -136,7 +139,8 @@ def calculate_quality_score(record, audio_path):
         issues.append(f"SHORT_TRANSCRIPT_{len(transcript.strip())}")
         
     # 4. Transcription confidence check
-    confidence = record.get("transcription_confidence", 1.0)
+    # Use 0.0 when field is absent (never fabricate a passing value)
+    confidence = record.get("transcription_confidence", 0.0)
     if confidence < QUALITY_THRESHOLDS["min_transcription_confidence"]:
         issues.append(f"LOW_TRANSCRIPTION_CONFIDENCE_{confidence:.2f}")
         
@@ -177,8 +181,7 @@ def calculate_quality_score(record, audio_path):
         print(f"Error checking audio quality for {audio_path}: {e}")
         issues.append("CORRUPTED_AUDIO")
 
-    score = 1.0 if not issues else 0.0
-    return score, issues
+    return issues
 
 def apply_quality_filters(input_path=None, output_path=None):
     """
@@ -218,15 +221,13 @@ def apply_quality_filters(input_path=None, output_path=None):
         try:
             audio_path = record.get("segment_path", "")
             
-            # Calculate quality score
-            score, issues = calculate_quality_score(record, audio_path)
-            
-            record["quality_score"] = float(score)
+            # Identify quality issues (real measurements only — no quality_score field)
+            issues = calculate_quality_issues(record, audio_path)
             record["quality_issues"] = issues
             
             updated_records.append(record)
             
-            if score >= 1.0:
+            if not issues:
                 filtered_records.append(record)
                 passed += 1
             else:
@@ -237,7 +238,6 @@ def apply_quality_filters(input_path=None, output_path=None):
         
         except Exception as e:
             print(f"Error processing segment {idx}: {e}")
-            record["quality_score"] = 0.0
             record["quality_issues"] = ["PROCESSING_ERROR"]
             updated_records.append(record)
             failed += 1

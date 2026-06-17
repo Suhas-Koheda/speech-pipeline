@@ -71,12 +71,13 @@ def tag_style_with_retry(text):
     """
     Query Sarvam-30b to tag speaking style.
     Uses exponential backoff for retries on rate limits or failures.
-    Returns (style, confidence, retries_used, duration, success).
+    Returns (style, confidence_or_None, retries_used, duration, success).
+    confidence is the raw float from the model JSON, or None on failure.
     """
     api_key = os.getenv("SARVAM_API_KEY")
     if not api_key:
         print("Warning: SARVAM_API_KEY is not set.")
-        return "neutral", 1.0, 0, 0.0, False
+        return "neutral", None, 0, 0.0, False
         
     client = SarvamAI(api_subscription_key=api_key)
     
@@ -106,7 +107,7 @@ Choose exactly one label:
 Return ONLY JSON:
 {{
 "style": "chosen_style",
-"confidence": 0.95
+"confidence": <float 0.0-1.0 reflecting your certainty>
 }}
 
 Input:
@@ -159,7 +160,7 @@ Output:"""
                 time.sleep(sleep_time)
             else:
                 duration = time.time() - start_time
-                return "neutral", 1.0, retries_used, duration, False
+                return "neutral", None, retries_used, duration, False
 
 def process_record_task(record, idx, tracker):
     """Worker task that processes a single segment record."""
@@ -171,13 +172,13 @@ def process_record_task(record, idx, tracker):
     else:
         tracker.record_failure(duration, retries_used)
         
-    # Store style and style_confidence as requested
+    # Store style from Sarvam LLM output
     record["style"] = style
-    record["style_confidence"] = confidence
-    
-    # Store emotion and emotion_confidence for compatibility
-    record["emotion"] = style
-    record["emotion_confidence"] = confidence
+    # Only store confidence if the model returned a real value
+    if confidence is not None:
+        record["style_confidence"] = confidence
+    elif "style_confidence" in record:
+        del record["style_confidence"]
     
     return record
 
