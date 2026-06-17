@@ -54,7 +54,8 @@ def apply_review():
                     "approved": approved,
                     "rejection_reason": row.get("rejection_reason", "").strip(),
                     "notes": row.get("notes", "").strip(),
-                    "transcript": row.get("transcript", "").strip()
+                    "transcript": row.get("transcript", "").strip(),
+                    "emotion": row.get("emotion", "").strip()
                 }
     except Exception as e:
         print(f"Error reading CSV: {e}")
@@ -108,6 +109,8 @@ def apply_review():
             record["notes"] = dec["notes"]
             if dec.get("transcript"):
                 record["transcript"] = dec["transcript"]
+            if dec.get("emotion"):
+                record["emotion"] = dec["emotion"]
             
             if dec["approved"]:
                 record["rejection_reason"] = ""

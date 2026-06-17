@@ -34,9 +34,9 @@ PIPELINE_STEPS = [
     },
     {
         "step": 3,
-        "name": "Transcript Normalization",
+        "name": "Transcript Normalization & Emotion Tagging",
         "script": "normalize_transcripts.py",
-        "description": "Identifies segments containing English words written in Telugu script and normalizes them back to English script."
+        "description": "Normalizes English words written in Telugu script and tags speaking style / emotion using a single Sarvam LLM call."
     },
     {
         "step": 4,
@@ -46,18 +46,12 @@ PIPELINE_STEPS = [
     },
     {
         "step": 5,
-        "name": "Emotion & Style Tagging",
-        "script": "emotion_tagging.py",
-        "description": "Applies LLM emotion / speaking-style classification using the official Sarvam SDK."
-    },
-    {
-        "step": 6,
         "name": "Dataset Validation & Diagnostics",
         "script": "validate_dataset.py",
         "description": "Validates transcripts, lexical repetition, duration limits, and speaker assignments, and produces diagnostic reports."
     },
     {
-        "step": 7,
+        "step": 6,
         "name": "HTML Review Tool Generation",
         "script": "generate_review_app.py",
         "description": "Creates the self-contained interactive browser-based review dashboard."

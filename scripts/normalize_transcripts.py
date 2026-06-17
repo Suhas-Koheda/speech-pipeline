@@ -1,14 +1,19 @@
 """
-Transcript Normalization Stage for Telugu-English Code-Mixed Datasets.
+Transcript Normalization & Emotion/Style Tagging Stage.
 
-Identifies segments containing English words written in Telugu script and
-normalizes them back to English script using the Sarvam SDK (sarvam-30b).
-Does not use any hardcoded word lists or dictionaries.
+Performs Telugu-to-English code-mixed transcript normalization and speaking style
+classification in a single, parallelized, optimized Sarvam LLM call (sarvam-30b)
+to minimize latency and credit consumption.
 """
 
 import os
+import sys
+import time
 import json
+import threading
 from pathlib import Path
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from sarvamai import SarvamAI
 
@@ -18,95 +23,224 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 # Load environment variables
 load_dotenv()
 
-def needs_normalization_check(text):
-    """
-    Check if a transcript contains any Telugu characters.
-    If it has no Telugu characters, it is pure English/numbers/punctuation and doesn't need normalization.
-    This check uses unicode ranges and avoids hardcoded word lists.
-    """
-    text_clean = text.strip()
-    if not text_clean:
-        return False
-        
-    # Telugu unicode range: 0C00 - 0C7F
-    has_telugu = any(0x0C00 <= ord(char) <= 0x0C7F for char in text_clean)
-    return has_telugu
+# Valid style / emotion labels for TTS training annotation
+VALID_EMOTIONS = {
+    "neutral", "conversational", "formal", "excited", "enthusiastic",
+    "happy", "humorous", "storytelling", "informative", "educational",
+    "interview", "discussion", "debate", "questioning", "persuasive",
+    "motivational", "inspirational", "serious", "analytical", "reflective",
+    "emotional", "sad", "angry"
+}
 
-def normalize_transcript(text):
+class ProgressTracker:
+    """Thread-safe progress tracking and reporting."""
+    def __init__(self, total):
+        self.total = total
+        self.lock = threading.Lock()
+        self.completed = 0
+        self.total_latency = 0.0
+        self.successful = 0
+        self.failed = 0
+        self.retries = 0
+
+    def record_success(self, duration, style, retries_cnt):
+        with self.lock:
+            self.completed += 1
+            self.successful += 1
+            self.total_latency += duration
+            self.retries += retries_cnt
+            avg_time = self.total_latency / self.completed if self.completed > 0 else 0.0
+            # Print in the exact requested format:
+            # [32/190]
+            # style=discussion
+            # time=1.8s
+            # avg=2.1s/request
+            print(f"[{self.completed}/{self.total}]")
+            print(f"style={style}")
+            print(f"time={duration:.1f}s")
+            print(f"avg={avg_time:.1f}s/request")
+            sys.stdout.flush()
+
+    def record_failure(self, duration, retries_cnt):
+        with self.lock:
+            self.completed += 1
+            self.failed += 1
+            self.total_latency += duration
+            self.retries += retries_cnt
+            avg_time = self.total_latency / self.completed if self.completed > 0 else 0.0
+            print(f"[{self.completed}/{self.total}]")
+            print("style=failed")
+            print(f"time={duration:.1f}s")
+            print(f"avg={avg_time:.1f}s/request")
+            sys.stdout.flush()
+
+def normalize_and_tag_with_retry(text):
     """
-    Normalize transliterated English words in Telugu script back to English script.
-    Uses model sarvam-30b. Returns (normalized_transcript, was_normalized).
+    Query Sarvam-30b model to perform normalization and emotion/style tagging in a single call.
+    Uses exponential backoff for retries on 429, 500, 503, and timeouts.
+    Returns (normalized_transcript, style, confidence, was_normalized, retries_used, duration, success).
     """
     api_key = os.getenv("SARVAM_API_KEY")
     if not api_key:
         print("Warning: SARVAM_API_KEY is not set.")
-        return text, False
+        return text, "neutral", 1.0, False, 0, 0.0, False
         
     client = SarvamAI(api_subscription_key=api_key)
     
-    prompt = f"""You are a transcript normalizer for Telugu speech transcripts.
+    prompt = f"""You are an expert speech dataset annotator.
 
-Your task is to convert English words written in Telugu script (transliterated English) back to standard English script, while preserving Telugu words in Telugu script exactly.
+Your task is to:
+1. Normalize Telugu-English code-mixed transcripts.
+2. Classify speaking style and emotion.
 
 Rules:
-1. Keep Telugu words in Telugu script. Do not translate Telugu words.
-2. Convert English words written in Telugu script back to English.
-3. Do not summarize or rewrite sentences. Preserve punctuation.
-4. If a transcript contains no transliterated English, return it exactly as it is.
 
-Return a JSON object with exactly these keys:
+Transcript normalization:
+* Keep Telugu words in Telugu script.
+* Convert English words written in Telugu script back to English.
+* Preserve meaning exactly.
+* Do not translate Telugu.
+* Do not rewrite content.
+* Return the cleaned transcript.
+
+Emotion/style classification:
+Choose exactly one label from:
+- neutral
+- conversational
+- formal
+- excited
+- enthusiastic
+- happy
+- humorous
+- storytelling
+- informative
+- educational
+- interview
+- discussion
+- debate
+- questioning
+- persuasive
+- motivational
+- inspirational
+- serious
+- analytical
+- reflective
+- emotional
+- sad
+- angry
+
+Guidelines:
+* Podcasts -> conversational, discussion, interview
+* News -> informative, formal
+* Lectures -> educational, informative
+* Personal experiences -> storytelling, reflective
+* Technical explanations -> analytical
+* Motivational talks -> motivational, inspirational
+* Strong positive energy -> enthusiastic or excited
+* Arguments -> debate or angry
+* Questions directed to audience -> questioning
+
+Return ONLY valid JSON:
 {{
-  "normalized_transcript": "<the normalized transcript or the original text if no change was needed>",
-  "was_normalized": <true if you converted any transliterated English words, false otherwise>
+  "normalized_transcript": "normalized transcript text",
+  "emotion": "chosen_label",
+  "emotion_confidence": 0.95
 }}
 
 Input:
 ఐ విల్ టెల్ యు కేరళ ఇస్ హావింగ్ 20 సీట్స్
 Output:
-{{"normalized_transcript": "I will tell you Kerala is having 20 seats", "was_normalized": true}}
+{{"normalized_transcript": "I will tell you Kerala is having 20 seats", "emotion": "conversational", "emotion_confidence": 0.95}}
 
 Input:
 ఈ model చాలా powerful గా ఉంది
 Output:
-{{"normalized_transcript": "ఈ model చాలా powerful గా ఉంది", "was_normalized": false}}
-
-Input:
-కేంద్ర ప్రభుత్వం నిర్ణయం తీసుకుంది
-Output:
-{{"normalized_transcript": "కేంద్ర ప్రభుత్వం నిర్ణయం తీసుకుంది", "was_normalized": false}}
+{{"normalized_transcript": "ఈ model చాలా powerful గా ఉంది", "emotion": "informative", "emotion_confidence": 0.90}}
 
 Input:
 {text}
 Output:"""
 
-    try:
-        response = client.chat.completions(
-            messages=[{"role": "user", "content": prompt}],
-            model="sarvam-30b",
-            temperature=0.1
-        )
+    backoffs = [1.0, 2.0, 4.0]
+    retries_used = 0
+    start_time = time.time()
+    
+    for attempt in range(4):  # attempt 0 is initial try, 1-3 are retries
+        try:
+            # Explicitly disable reasoning as requested: reasoning_effort=None
+            response = client.chat.completions(
+                model="sarvam-30b",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=150,
+                reasoning_effort=None
+            )
+            
+            content = ""
+            if hasattr(response, "choices") and response.choices:
+                content = response.choices[0].message.content
+            elif isinstance(response, dict) and "choices" in response:
+                content = response["choices"][0]["message"]["content"]
+                
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.endswith("```"):
+                content = content[:-3]
+                
+            data = json.loads(content.strip())
+            norm_text = data.get("normalized_transcript", text)
+            emotion = data.get("emotion", "neutral")
+            confidence = float(data.get("emotion_confidence", 1.0))
+            
+            if emotion not in VALID_EMOTIONS:
+                emotion = "neutral"
+                
+            was_normalized = (norm_text.strip() != text.strip())
+            duration = time.time() - start_time
+            return norm_text, emotion, confidence, was_normalized, retries_used, duration, True
+            
+        except Exception as e:
+            err_str = str(e).lower()
+            # Check for retryable conditions
+            is_retryable = any(status in err_str for status in ["429", "500", "503", "rate limit", "timeout", "busy", "remote"]) or "timeout" in err_str
+            
+            if is_retryable and attempt < 3:
+                sleep_time = backoffs[attempt]
+                retries_used += 1
+                time.sleep(sleep_time)
+            else:
+                duration = time.time() - start_time
+                return text, "neutral", 1.0, False, retries_used, duration, False
+
+def process_record_task(record, idx, tracker):
+    """Worker task that processes a single segment record."""
+    transcript = record.get("transcript", "")
+    norm_text, emotion, confidence, was_normalized, retries_used, duration, success = normalize_and_tag_with_retry(transcript)
+    
+    if success:
+        tracker.record_success(duration, emotion, retries_used)
+    else:
+        tracker.record_failure(duration, retries_used)
         
-        content = ""
-        if hasattr(response, "choices") and response.choices:
-            content = response.choices[0].message.content
-        elif isinstance(response, dict) and "choices" in response:
-            content = response["choices"][0]["message"]["content"]
-            
-        content = content.strip()
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.endswith("```"):
-            content = content[:-3]
-            
-        data = json.loads(content.strip())
-        norm_text = data.get("normalized_transcript", text)
-        was_norm = data.get("was_normalized", False)
-        return norm_text, was_norm
-    except Exception as e:
-        print(f"Error calling Sarvam LLM in normalization: {e}")
-        return text, False
+    # Store formats requested:
+    # 1. raw_transcript, transcript, style, style_confidence
+    # 2. emotion, emotion_confidence, was_normalized, normalized
+    record["raw_transcript"] = record.get("raw_transcript", transcript)
+    record["transcript"] = norm_text
+    record["style"] = emotion
+    record["style_confidence"] = confidence
+    record["emotion"] = emotion
+    record["emotion_confidence"] = confidence
+    record["normalized_transcript"] = norm_text
+    record["was_normalized"] = was_normalized
+    record["normalized"] = True
+    
+    return record
 
 def main():
+    global_start = time.time()
+    
     input_path = ROOT_DIR / "data" / "segments_metadata.jsonl"
     output_path = ROOT_DIR / "data" / "segments_metadata_normalized.jsonl"
     
@@ -121,34 +255,24 @@ def main():
                 records.append(json.loads(line))
                 
     total_segments = len(records)
-    normalized_count = 0
-    unchanged_count = 0
+    print(f"\n=== Transcript Normalization & Emotion Tagging Stage ===")
+    print(f"Processing {total_segments} segments concurrently using 2 workers...")
     
-    print(f"\n=== Transcript Normalization Stage ===")
-    print(f"Processing {total_segments} segments...")
+    tracker = ProgressTracker(total_segments)
     
-    updated_records = []
-    for idx, record in enumerate(records, start=1):
-        transcript = record.get("transcript", "")
-        record["raw_transcript"] = transcript
+    # Process segments in parallel (MAX_WORKERS = 2)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(process_record_task, record, idx, tracker) for idx, record in enumerate(records)]
+        updated_records = [future.result() for future in futures]
         
-        if needs_normalization_check(transcript):
-            print(f"[{idx}/{total_segments}] Checking normalization for: '{transcript[:40]}...'")
-            normalized_text, was_normalized = normalize_transcript(transcript)
-            if was_normalized:
-                print(f"  -> Normalized: '{normalized_text[:40]}...'")
-                normalized_count += 1
-            else:
-                unchanged_count += 1
-            record["normalized_transcript"] = normalized_text
-            record["was_normalized"] = was_normalized
-            record["transcript"] = normalized_text
-        else:
-            record["normalized_transcript"] = transcript
-            record["was_normalized"] = False
-            unchanged_count += 1
-            
-        updated_records.append(record)
+    # Count final outcomes and statistics
+    normalized_count = sum(1 for r in updated_records if r.get("was_normalized", False))
+    unchanged_count = total_segments - normalized_count
+    
+    emotion_distribution = defaultdict(int)
+    for r in updated_records:
+        style = r.get("style", "neutral")
+        emotion_distribution[style] += 1
         
     # Save output metadata
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,22 +280,30 @@ def main():
         for r in updated_records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
             
-    # Generate statistics
+    # Generate statistics JSON
     stats = {
         "total_segments": total_segments,
         "normalized_segments": normalized_count,
-        "unchanged_segments": unchanged_count
+        "unchanged_segments": unchanged_count,
+        "emotion_distribution": dict(emotion_distribution)
     }
     stats_path = ROOT_DIR / "data" / "normalization_stats.json"
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=4)
         
-    print(f"\n=== Normalization Summary ===")
-    print(f"Total segments:      {total_segments}")
-    print(f"Normalized segments: {normalized_count} ({100*normalized_count/total_segments:.1f}%)" if total_segments > 0 else 0)
-    print(f"Unchanged segments:  {unchanged_count} ({100*unchanged_count/total_segments:.1f}%)" if total_segments > 0 else 0)
-    print(f"Stats saved to:      {stats_path}")
-    print(f"Saved normalized metadata to: {output_path}")
+    # Generate Benchmark Output
+    total_runtime_min = (time.time() - global_start) / 60.0
+    avg_req_time = tracker.total_latency / total_segments if total_segments > 0 else 0.0
+    
+    print("\nBenchmark:")
+    print(f"Total Segments: {total_segments}")
+    print(f"Successful: {tracker.successful}")
+    print(f"Failed: {tracker.failed}")
+    print(f"Average Request Time: {avg_req_time:.2f} sec")
+    print(f"Total Runtime: {total_runtime_min:.2f} min")
+    print("Workers: 2")
+    print("Reasoning: Disabled")
+    sys.stdout.flush()
 
 # if __name__ == "__main__":
 #     main()

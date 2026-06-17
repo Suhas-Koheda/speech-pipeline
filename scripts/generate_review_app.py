@@ -586,6 +586,10 @@ def generate_app():
                             <div class="meta-value" id="meta-emotion">N/A</div>
                         </div>
                         <div class="meta-item">
+                            <div class="meta-label">Emotion Confidence</div>
+                            <div class="meta-value" id="meta-emotion-confidence">N/A</div>
+                        </div>
+                        <div class="meta-item">
                             <div class="meta-label">Speaker</div>
                             <div class="meta-value" id="meta-speaker">N/A</div>
                         </div>
@@ -626,6 +630,35 @@ def generate_app():
                             <option value="noise">noise</option>
                             <option value="wrong_emotion">wrong_emotion</option>
                             <option value="other">other</option>
+                        </select>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="emotion-select">Emotion / Speaking Style</label>
+                        <select id="emotion-select" onchange="onEmotionChange()">
+                            <option value="neutral">neutral</option>
+                            <option value="conversational">conversational</option>
+                            <option value="formal">formal</option>
+                            <option value="excited">excited</option>
+                            <option value="enthusiastic">enthusiastic</option>
+                            <option value="happy">happy</option>
+                            <option value="humorous">humorous</option>
+                            <option value="storytelling">storytelling</option>
+                            <option value="informative">informative</option>
+                            <option value="educational">educational</option>
+                            <option value="interview">interview</option>
+                            <option value="discussion">discussion</option>
+                            <option value="debate">debate</option>
+                            <option value="questioning">questioning</option>
+                            <option value="persuasive">persuasive</option>
+                            <option value="motivational">motivational</option>
+                            <option value="inspirational">inspirational</option>
+                            <option value="serious">serious</option>
+                            <option value="analytical">analytical</option>
+                            <option value="reflective">reflective</option>
+                            <option value="emotional">emotional</option>
+                            <option value="sad">sad</option>
+                            <option value="angry">angry</option>
                         </select>
                     </div>
                     
@@ -762,6 +795,7 @@ def generate_app():
                 document.getElementById('transcript-options-container').style.display = 'none';
                 document.getElementById('meta-lang').innerText = "N/A";
                 document.getElementById('meta-emotion').innerText = "N/A";
+                document.getElementById('meta-emotion-confidence').innerText = "N/A";
                 document.getElementById('meta-speaker').innerText = "N/A";
                 document.getElementById('meta-duration').innerText = "N/A";
                 document.getElementById('meta-quality').innerText = "N/A";
@@ -825,8 +859,18 @@ def generate_app():
                 document.getElementById('transcript-options-container').style.display = 'none';
             }}
             
+            let activeEmotion = segment.emotion || "neutral";
+            if (dec && dec.emotion !== undefined) {{
+                activeEmotion = dec.emotion;
+            }}
+            document.getElementById('emotion-select').value = activeEmotion;
+            
             document.getElementById('meta-lang').innerText = segment.language || "unknown";
-            document.getElementById('meta-emotion').innerText = segment.emotion || "neutral";
+            document.getElementById('meta-emotion').innerText = activeEmotion;
+            
+            const emotionConf = segment.emotion_confidence !== undefined ? segment.emotion_confidence : 1.0;
+            document.getElementById('meta-emotion-confidence').innerText = emotionConf.toFixed(2);
+            
             document.getElementById('meta-speaker').innerText = segment.dominant_speaker || segment.speaker_id || "UNKNOWN";
             
             const duration = segment.duration || 0.0;
@@ -839,7 +883,6 @@ def generate_app():
             document.getElementById('meta-purity').innerText = purity.toFixed(2);
             
             // Render Decision
-            const dec = decisions[segment.segment_path];
             const badge = document.getElementById('status-badge');
             
             // Reset state
@@ -877,7 +920,8 @@ def generate_app():
                 approved: true,
                 rejection_reason: "",
                 notes: document.getElementById('notes-textarea').value,
-                transcript: document.getElementById('transcript-editor').value
+                transcript: document.getElementById('transcript-editor').value,
+                emotion: document.getElementById('emotion-select').value
             }};
             
             saveToLocalStorage();
@@ -894,7 +938,8 @@ def generate_app():
                 approved: false,
                 rejection_reason: document.getElementById('rejection-select').value,
                 notes: document.getElementById('notes-textarea').value,
-                transcript: document.getElementById('transcript-editor').value
+                transcript: document.getElementById('transcript-editor').value,
+                emotion: document.getElementById('emotion-select').value
             }};
             
             saveToLocalStorage();
@@ -922,6 +967,25 @@ def generate_app():
                 decisions[segment.segment_path].notes = document.getElementById('notes-textarea').value;
                 saveToLocalStorage();
             }}
+        }}
+        
+        function onEmotionChange() {{
+            if (filteredIndices.length === 0) return;
+            const originalIndex = filteredIndices[currentIndex];
+            const segment = allSegments[originalIndex];
+            
+            if (!decisions[segment.segment_path]) {{
+                decisions[segment.segment_path] = {{
+                    approved: true,
+                    rejection_reason: "",
+                    notes: "",
+                    transcript: document.getElementById('transcript-editor').value
+                }};
+            }}
+            decisions[segment.segment_path].emotion = document.getElementById('emotion-select').value;
+            saveToLocalStorage();
+            
+            document.getElementById('meta-emotion').innerText = decisions[segment.segment_path].emotion;
         }}
         
         function onTranscriptEditorInput() {{
@@ -993,8 +1057,8 @@ def generate_app():
         
         // Export to CSV Function
         function exportCSV() {{
-            // Columns required: segment_path, approved, rejection_reason, notes, transcript
-            let csvContent = "segment_path,approved,rejection_reason,notes,transcript\\r\\n";
+            // Columns required: segment_path, approved, rejection_reason, notes, transcript, emotion
+            let csvContent = "segment_path,approved,rejection_reason,notes,transcript,emotion\\r\\n";
             
             allSegments.forEach(segment => {{
                 const path = segment.segment_path;
@@ -1004,6 +1068,7 @@ def generate_app():
                 let reason = "";
                 let notes = "";
                 let transcriptVal = segment.transcript || "";
+                let emotionVal = segment.emotion || "neutral";
                 
                 if (dec) {{
                     approvedStr = dec.approved ? "true" : "false";
@@ -1011,6 +1076,9 @@ def generate_app():
                     notes = dec.notes || "";
                     if (dec.transcript !== undefined) {{
                         transcriptVal = dec.transcript;
+                    }}
+                    if (dec.emotion !== undefined) {{
+                        emotionVal = dec.emotion;
                     }}
                 }}
                 
@@ -1020,8 +1088,9 @@ def generate_app():
                 const escapedReason = `"${{reason.replace(/"/g, '""')}}"`;
                 const escapedNotes = `"${{notes.replace(/"/g, '""')}}"`;
                 const escapedTranscript = `"${{transcriptVal.replace(/"/g, '""')}}"`;
+                const escapedEmotion = `"${{emotionVal.replace(/"/g, '""')}}"`;
                 
-                csvContent += `${{escapedPath}},${{escapedApproved}},${{escapedReason}},${{escapedNotes}},${{escapedTranscript}}\\r\\n`;
+                csvContent += `${{escapedPath}},${{escapedApproved}},${{escapedReason}},${{escapedNotes}},${{escapedTranscript}},${{escapedEmotion}}\\r\\n`;
             }});
             
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
