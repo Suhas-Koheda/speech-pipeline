@@ -4,29 +4,23 @@ HuggingFace Dataset Export
 Exports final TTS training dataset to HuggingFace dataset format.
 
 Schema:
-{
-    \"audio\": {
-        \"path\": str,
-        \"array\": np.ndarray,
-        \"sampling_rate\": int
-    },
-    \"text\": str,
-    \"language\": str,
-    \"emotion\": str,
-    \"speaker\": str,
-    \"duration\": float,
-    \"video_id\": str,
-    \"channel\": str,
-}
+* audio: {"path": "...", "bytes": ...}
+* transcript: str
+* language: str
+* speaker_id: str
+* emotion: str
+* speaker_purity_score: float
 """
 
 import json
+import os
 from pathlib import Path
 import numpy as np
-import torchaudio
-from datasets import Dataset, Audio, DatasetDict, load_dataset
-import soundfile as sf
+from datasets import Dataset, Audio, DatasetDict
+from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv()
 
 SAMPLING_RATE = 16000
 
@@ -48,24 +42,30 @@ def load_segments_metadata(metadata_path):
 
 def prepare_dataset_record(segment_record):
     """
-    Prepare a single record for HuggingFace dataset.
-    
-    Args:
-        segment_record: Dictionary containing segment metadata
-    
-    Returns:
-        Dictionary with HuggingFace dataset schema
+    Prepare a single record matching the HuggingFace dataset schema.
     """
+    # Calculate speaker purity score if not already present
+    speaker_purity_score = segment_record.get("speaker_purity_score")
+    if speaker_purity_score is None:
+        dominant_speaker = segment_record.get("dominant_speaker", "UNKNOWN")
+        duration = segment_record.get("duration", 0.0)
+        if duration <= 0.0:
+            duration = segment_record.get("end", 0.0) - segment_record.get("start", 0.0)
+            
+        speaker_overlap = segment_record.get("speaker_overlap", {})
+        if speaker_overlap and dominant_speaker not in ["MIXED", "UNKNOWN"]:
+            dominant_overlap = speaker_overlap.get(dominant_speaker, 0.0)
+            speaker_purity_score = dominant_overlap / duration if duration > 0.0 else 0.0
+        else:
+            speaker_purity_score = 0.0
+            
     return {
-        "audio_path": segment_record.get("segment_path", ""),
-        "text": segment_record.get("transcript", ""),
+        "audio": segment_record.get("segment_path", ""),
+        "transcript": segment_record.get("transcript", ""),
         "language": segment_record.get("language", "unknown"),
+        "speaker_id": segment_record.get("dominant_speaker", "UNKNOWN"),
         "emotion": segment_record.get("emotion", "neutral"),
-        "speaker": segment_record.get("dominant_speaker", "UNKNOWN"),
-        "duration": segment_record.get("duration", 0.0),
-        "video_id": segment_record.get("video_id", ""),
-        "channel": segment_record.get("channel", ""),
-        "quality_score": segment_record.get("quality_score", 1.0),
+        "speaker_purity_score": float(speaker_purity_score),
     }
 
 
@@ -73,21 +73,10 @@ def create_hf_dataset(
     input_path="../data/segments_metadata_final.jsonl",
     dataset_name="tts-training-dataset",
     push_to_hub=False,
-    hub_repo_name="username/tts-training-dataset",
-    hub_token=None,
+    hub_repo_name=None,
 ):
     """
     Create HuggingFace dataset from segments metadata.
-    
-    Args:
-        input_path: Path to final segments metadata
-        dataset_name: Name for the dataset
-        push_to_hub: Whether to push to HuggingFace Hub
-        hub_repo_name: HuggingFace Hub repository name
-        hub_token: HuggingFace API token for pushing
-    
-    Returns:
-        Dataset object
     """
     print(f"\n=== Creating HuggingFace Dataset ===")
     
@@ -109,10 +98,12 @@ def create_hf_dataset(
             prepared = prepare_dataset_record(record)
             
             # Verify audio file exists
-            audio_path = Path(prepared["audio_path"])
+            audio_path = Path(prepared["audio"])
             if not audio_path.exists():
-                print(f"Warning: Audio file not found: {audio_path}")
-                continue
+                # Check relative path
+                if not Path(record.get("segment_path", "")).exists():
+                    print(f"Warning: Audio file not found: {audio_path}")
+                    continue
             
             dataset_records.append(prepared)
             
@@ -125,6 +116,10 @@ def create_hf_dataset(
     
     print(f"Successfully prepared {len(dataset_records)} records")
     
+    if not dataset_records:
+        print("No valid records to build dataset.")
+        return None
+        
     # Create dataset from dictionaries
     dataset = Dataset.from_dict({
         key: [r[key] for r in dataset_records]
@@ -132,10 +127,7 @@ def create_hf_dataset(
     })
     
     # Cast audio column
-    dataset = dataset.cast_column("audio_path", Audio(sampling_rate=SAMPLING_RATE))
-    
-    # Rename for proper schema
-    dataset = dataset.rename_column("audio_path", "audio")
+    dataset = dataset.cast_column("audio", Audio(sampling_rate=SAMPLING_RATE))
     
     print(f"\nDataset created with {len(dataset)} examples")
     print(f"Features: {dataset.features}")
@@ -147,17 +139,20 @@ def create_hf_dataset(
     dataset.save_to_disk(str(output_dir))
     print(f"\nSaved to: {output_dir}")
     
-    # Optionally push to Hub
+    # Optionally push to Hub (Public as requested)
     if push_to_hub:
+        hub_token = os.getenv("HF_TOKEN")
         if not hub_token:
-            print("Warning: hub_token not provided, skipping Hub upload")
+            print("Warning: HF_TOKEN not found in environment variables, skipping Hub upload")
+        elif not hub_repo_name:
+            print("Warning: hub_repo_name not specified, skipping Hub upload")
         else:
             try:
-                print(f"\nPushing to Hub: {hub_repo_name}")
+                print(f"\nPushing to Hub: {hub_repo_name} (Public)")
                 dataset.push_to_hub(
                     hub_repo_name,
                     token=hub_token,
-                    private=True,
+                    private=False,  # PUBLIC dataset
                 )
                 print(f"Successfully pushed to {hub_repo_name}")
             except Exception as e:
@@ -173,16 +168,7 @@ def split_dataset(
     test_size=0.1,
 ):
     """
-    Split dataset into train/val/test.
-    
-    Args:
-        dataset: HuggingFace Dataset
-        train_size: Training set percentage
-        val_size: Validation set percentage
-        test_size: Test set percentage
-    
-    Returns:
-        DatasetDict with splits
+    Split dataset into train/val/test splits.
     """
     print(f"\n=== Splitting Dataset ===")
     
@@ -226,20 +212,21 @@ def split_dataset(
 def export_dataset(
     input_path="../data/segments_metadata_final.jsonl",
     dataset_name="tts-training-dataset",
-    output_format="parquet",  # or "arrow", "csv"
+    output_format="parquet",
     split=True,
+    push_to_hub=False,
+    hub_repo_name=None,
 ):
     """
     Export dataset in various formats.
-    
-    Args:
-        input_path: Path to final segments metadata
-        dataset_name: Name for the dataset
-        output_format: Export format (parquet, arrow, csv)
-        split: Whether to split into train/val/test
     """
     # Create dataset
-    dataset = create_hf_dataset(input_path, dataset_name)
+    dataset = create_hf_dataset(
+        input_path=input_path,
+        dataset_name=dataset_name,
+        push_to_hub=push_to_hub,
+        hub_repo_name=hub_repo_name
+    )
     
     if dataset is None:
         return
@@ -284,12 +271,6 @@ def generate_dataset_card(
 ):
     """
     Generate a README.md card for the dataset.
-    
-    Args:
-        dataset_name: Name of the dataset
-        description: Dataset description
-        languages: List of languages
-        emotions: List of emotions
     """
     if emotions is None:
         emotions = ["neutral", "conversational", "formal", "excited", "happy", 
@@ -336,8 +317,8 @@ dataset = load_dataset(
 
 # Access a sample
 sample = dataset[0]
-print(sample["text"])
-print(f"Duration: {{sample['duration']}}s")
+print(sample["transcript"])
+print(f"Speaker ID: {{sample['speaker_id']}}")
 print(f"Emotion: {{sample['emotion']}}")
 ```
 
@@ -348,14 +329,6 @@ print(f"Emotion: {{sample['emotion']}}")
 
 ## License
 CC-BY-4.0
-
-## Citation
-
-@dataset{{{dataset_name},
-  title={{{dataset_name}}},
-  author={{Unknown Haas}},
-  year={{2026}}
-}}
 """
     
     output_path = Path(f"../datasets/{dataset_name}/README.md")
@@ -368,15 +341,23 @@ CC-BY-4.0
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="HuggingFace Dataset Export")
+    parser.add_argument("--repo", type=str, help="HuggingFace repository name (e.g. username/repo)")
+    parser.add_argument("--push", action="store_true", help="Push dataset to HuggingFace Hub")
+    args = parser.parse_args()
+    
     # Create and export dataset
     export_dataset(
         dataset_name="tts-training-dataset",
         output_format="parquet",
-        split=True
+        split=True,
+        push_to_hub=args.push,
+        hub_repo_name=args.repo
     )
     
     # Generate dataset card
     generate_dataset_card(
         dataset_name="tts-training-dataset",
-        description="High-quality TTS training dataset with emotion tags",
+        description="High-quality TTS training dataset with emotion and style tags",
     )

@@ -130,11 +130,58 @@ python3 scripts/attribute_speakers.py
 - **Outputs:** Appends `dominant_speaker` and `speaker_overlap` fields to each line in `data/segments_metadata.jsonl`.
 
 ### Step 6: Transcribe Audio Chunks
-Generate Telugu RNN-T transcriptions for the segments.
+Generate multilingual transcriptions using Sarvam ASR API directly on the audio segments.
 ```bash
 python3 scripts/extarct_transcript.py
 ```
-- **Outputs:** Appends the final `transcript` text field to `data/segments_metadata.jsonl`.
+- **Outputs:** Appends `transcript`, `language`, and `transcription_confidence` fields to `data/segments_metadata.jsonl`.
+
+### Step 7: Quality Filtering
+Apply robust TTS-centric quality filters to isolate the clean, single-speaker segments.
+```bash
+python3 scripts/quality_filter.py
+```
+- **Outputs:** Updates `data/segments_metadata.jsonl` with `quality_score`, `quality_issues`, and `speaker_purity_score`. Creates the accepted subset in `data/segments_metadata_filtered.jsonl`.
+
+### Step 8: Emotion & Style Tagging
+Apply LLM-based emotion and speaking-style classification using transcript content and video metadata.
+```bash
+python3 scripts/emotion_tagging.py
+```
+- **Outputs:** Generates `data/segments_metadata_emotions.jsonl` containing the `emotion` and `emotion_confidence` tags.
+
+### Step 9: Manual Review Workflow
+Generate the mandatory manual review CSV sheet, and filter the dataset based on reviewer decisions.
+```bash
+# 1. Generate the review.csv spreadsheet
+python3 scripts/manual_review.py --generate
+
+# (Open and edit data/review.csv, setting 'approved' to True/False)
+
+# 2. Extract approved segments
+python3 scripts/manual_review.py --filter
+```
+- **Outputs:**
+  - `data/review.csv` (CSV format with approval flags)
+  - `data/segments_metadata_final.jsonl` (Final accepted dataset)
+  - `data/segments_metadata_rejected.jsonl` (Trace of rejected segments)
+
+### Step 10: Hugging Face Export
+Convert the final reviewed dataset to Hugging Face datasets format and optionally push to the Hub.
+```bash
+# Export locally and optionally upload to Hub
+python3 scripts/hf_export.py --push --repo user/dataset-name
+```
+- **Outputs:** Generates Parquet files in `datasets/tts-training-dataset_exported` and the dataset card.
+
+### Step 11: Dataset Statistics Dashboard
+Generate comprehensive json stats and a premium visual dashboard of the final dataset.
+```bash
+python3 scripts/dataset_statistics.py
+```
+- **Outputs:**
+  - `data/statistics.json` (Dataset stats in JSON)
+  - `data/statistics.html` (Insights dashboard report)
 
 ---
 
@@ -164,25 +211,35 @@ python3 scripts/extarct_transcript.py
 ]
 ```
 
-### 2. `data/segments_metadata.jsonl` (Final Output)
+### 2. `data/segments_metadata_final.jsonl` (Final Output Schema)
 ```json
-{"video_id": "6kPsgJHAXA0", "channel": "Raw Talks With VK", "title": "Raw Talks Telugu Podcast Ep 64", "audio_path": "../audio/Raw Talks With VK/podcast.wav", "segment_path": "../segments/Raw Talks With VK/6kPsgJHAXA0/segment_00000.wav", "start": 0.034, "end": 15.034, "duration": 15.0, "dominant_speaker": "SPEAKER_00", "speaker_overlap": {"SPEAKER_00": 12.416, "SPEAKER_01": 2.584}, "transcript": "నమస్కారం అండి ఈరోజు మనతో ఉన్న గెస్ట్"}
+{
+  "video_id": "6kPsgJHAXA0",
+  "channel": "Raw Talks With VK",
+  "title": "Raw Talks Telugu Podcast Ep 64",
+  "audio_path": "../audio/Raw Talks With VK/podcast.wav",
+  "segment_path": "../segments/Raw Talks With VK/6kPsgJHAXA0/segment_00000.wav",
+  "start": 0.034,
+  "end": 15.034,
+  "duration": 15.0,
+  "dominant_speaker": "SPEAKER_00",
+  "speaker_overlap": {"SPEAKER_00": 12.416, "SPEAKER_01": 2.584},
+  "transcript": "నమస్కారం అండి ఈరోజు మనతో ఉన్న గెస్ట్",
+  "language": "te",
+  "transcription_confidence": 0.98,
+  "speaker_purity_score": 0.828,
+  "quality_score": 1.0,
+  "quality_issues": [],
+  "emotion": "conversational",
+  "emotion_confidence": 0.95,
+  "approved": true
+}
 ```
 
----
-
-## Future Roadmap
-
-### 1. Transcription Quality
-- **Multi-ASR Evaluation:** Benchmark and compare output transcripts across `ai4bharat/indic-conformer-600m-multilingual`, OpenAI Whisper models (e.g., `whisper-large-v3`), Sarvam ASR APIs, and emerging Telugu ASR models.
-- **Telugu-English Code-Mixed Support:** Integrate and fine-tune models specialized in handling bilingual, code-mixed Telugu-English conversation structures commonly present in urban podcasts.
-
-### 2. Metadata Enrichment
-- **Emotion Classification:** Deploy Speech Emotion Recognition (SER) models (e.g., Wav2Vec2 fine-tuned on emotion datasets) to append sentiment and emotional context tags to segments.
-- **Speaking-Style Tagging:** Automate categorization of speaking styles (conversational, formal debate, whisper, shouting, humor).
-- **Topic Modeling:** Apply NLP/LLM-based topic classifiers over transcripts to auto-tag segments with domains (e.g., Politics, Food, Comedy, Tech).
-- **Language & Dialect ID:** Detect regional Telugu dialects (Telangana, Andhra, Rayalaseema) and measure English code-mixing percentages.
-
-### 3. Production Pipeline
-- **Parallel Processing:** Implement distributed batch downloading and processing frameworks 
-- **Streaming JSONL Engine:** Refactor data handlers to use generator streams for processing millions of audio segment metadata rows without memory bottlenecks.
+### 3. Hugging Face Dataset Schema
+* `audio`: `{"path": "...", "bytes": ...}`
+* `transcript`: `str`
+* `language`: `str`
+* `speaker_id`: `str`
+* `emotion`: `str`
+* `speaker_purity_score`: `float`

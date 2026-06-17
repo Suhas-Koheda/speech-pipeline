@@ -102,12 +102,21 @@ def assign_speakers():
             else:
                 dominant_speaker = "UNKNOWN"
 
+            # Calculate speaker purity score
+            segment_duration = segment["end"] - segment["start"]
+            if speaker_overlap and dominant_speaker not in ["MIXED", "UNKNOWN"]:
+                dominant_overlap = speaker_overlap.get(dominant_speaker, 0)
+                speaker_purity_score = min(dominant_overlap / segment_duration, 1.0)
+            else:
+                speaker_purity_score = 0.0
+
             segment["dominant_speaker"] = (
                 dominant_speaker
             )
             segment["speaker_overlap"] = (
                 speaker_overlap
             )
+            segment["speaker_purity_score"] = round(speaker_purity_score, 3)
 
             updated.append(segment)
 

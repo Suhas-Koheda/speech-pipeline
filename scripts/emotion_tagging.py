@@ -1,9 +1,10 @@
 """
 Emotion/Style Tagging Pipeline
 
-Applies emotion recognition to audio segments using pre-trained models.
+Applies emotion and style recognition to audio segments using an LLM-based classifier
+over transcripts and audio metadata, falling back to a rule-based heuristic classifier.
 
-Supported emotions:
+Allowed labels:
 - neutral
 - conversational
 - formal
@@ -16,155 +17,230 @@ Supported emotions:
 """
 
 import json
+import os
+import urllib.request
+import urllib.error
 from pathlib import Path
-import numpy as np
-import torch
-import torchaudio
-from transformers import pipeline
+from dotenv import load_dotenv
 
-# Emotion labels mapping
-EMOTION_LABELS = {
-    "neutral": "neutral",
-    "conversational": "conversational",
-    "formal": "formal",
-    "excited": "excited",
-    "happy": "happy",
-    "sad": "sad",
-    "angry": "angry",
-    "questioning": "questioning",
-    "serious": "serious",
-}
+# Load environment variables
+load_dotenv()
 
-SAMPLING_RATE = 16000
+# Allowed emotion labels
+EMOTION_LABELS = [
+    "neutral",
+    "conversational",
+    "formal",
+    "excited",
+    "happy",
+    "sad",
+    "angry",
+    "questioning",
+    "serious"
+]
 
 
-class EmotionTagger:
-    """Speech emotion recognition wrapper."""
+def query_groq(prompt):
+    """Query Groq API for emotion classification."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return None
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama-3.3-70b-specdec",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.1
+    }
+    try:
+        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res = json.loads(response.read().decode("utf-8"))
+            content = res["choices"][0]["message"]["content"]
+            return json.loads(content)
+    except Exception as e:
+        print(f"Groq API error: {e}")
+        return None
+
+
+def query_gemini(prompt):
+    """Query Gemini API for emotion classification."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.1
+        }
+    }
+    try:
+        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res = json.loads(response.read().decode("utf-8"))
+            text = res["candidates"][0]["content"]["parts"][0]["text"]
+            return json.loads(text)
+    except Exception as e:
+        print(f"Gemini API error: {e}")
+        return None
+
+
+def query_sarvam(prompt):
+    """Query Sarvam LLM API for emotion classification."""
+    api_key = os.getenv("SARVAM_API_KEY")
+    if not api_key:
+        return None
+    url = "https://api.sarvam.ai/chat/completions"
+    headers = {
+        "api-subscription-key": api_key,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "sarvam-2b",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.1
+    }
+    try:
+        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res = json.loads(response.read().decode("utf-8"))
+            content = res["choices"][0]["message"]["content"]
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.endswith("```"):
+                content = content[:-3]
+            return json.loads(content.strip())
+    except Exception as e:
+        print(f"Sarvam LLM API error: {e}")
+        return None
+
+
+def heuristic_classify(transcript, title, channel, duration):
+    """
+    Fallback heuristic classifier based on transcript keywords and metadata.
+    """
+    text = transcript.lower().strip()
+    title_lower = title.lower()
+    channel_lower = channel.lower()
     
-    def __init__(self, model_name="speechbrain/emotion-recognition-wav2vec2-IEMOCAP"):
-        """
-        Initialize emotion tagger with pre-trained model.
+    # 1. Questioning
+    if text.endswith("?") or any(w in text for w in ["ఏంటి", "ఎందుకు", "ఎలా", "ఎవరు", "ఎప్పుడు", "ఏది", "what", "why", "how", "who", "when", "which", "where"]):
+        return "questioning", 0.85
         
-        Args:
-            model_name: HuggingFace model identifier
-        """
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+    # 2. Angry
+    if text.endswith("!") or "!!" in text or any(w in text for w in ["శాపం", "కోపం", "అన్యాయం", "shout", "fight", "angry", "kill", "hate"]):
+        return "angry", 0.75
         
-        print(f"Loading emotion model: {model_name}")
-        print(f"Using device: {self.device}")
+    # 3. Excited
+    if any(w in text for w in ["అద్భుతం", "సూపర్", "ఆనందం", "happy", "excited", "wow", "great", "awesome", "love", "smile"]):
+        return "excited", 0.80
         
-        try:
-            # Load emotion classification pipeline
-            self.classifier = pipeline(
-                "audio-classification",
-                model=model_name,
-                device=self.device if self.device == "cuda" else -1
-            )
-            print("Emotion model loaded successfully")
-        except Exception as e:
-            print(f"Warning: Could not load model {model_name}: {e}")
-            self.classifier = None
+    # 4. Sad
+    if any(w in text for w in ["బాధ", "కన్నీళ్లు", "సంతాపం", "sad", "cry", "loss", "sorry", "death", "die"]):
+        return "sad", 0.80
+        
+    # 5. Conversational
+    if any(w in channel_lower or w in title_lower for w in ["podcast", "raw talks", "interview", "conversation", "chat", "vlog"]):
+        return "conversational", 0.85
+        
+    # 6. Formal
+    if any(w in channel_lower or w in title_lower for w in ["news", "tv", "press", "speech", "lecture", "formal", "academic", "analysis"]):
+        return "formal", 0.85
+        
+    # Default fallback
+    return "neutral", 0.70
+
+
+class LLMEmotionTagger:
+    """LLM-based classifier for speech emotion and style."""
     
-    def predict(self, audio_path, top_k=1):
+    def predict(self, record):
         """
-        Predict emotion for audio segment.
-        
-        Args:
-            audio_path: Path to audio file
-            top_k: Number of top predictions
-        
-        Returns:
-            Tuple of (emotion_label, confidence)
+        Predict emotion for record using LLM or heuristic fallback.
         """
-        if self.classifier is None:
-            return "neutral", 0.5  # Default if model not loaded
+        transcript = record.get("transcript", "")
+        title = record.get("title", "")
+        channel = record.get("channel", "")
+        duration = record.get("duration", 0.0)
         
-        try:
-            # Load audio
-            wav, sr = torchaudio.load(audio_path)
+        if not transcript:
+            return "neutral", 1.0
             
-            # Resample if needed
-            if sr != SAMPLING_RATE:
-                resampler = torchaudio.transforms.Resample(sr, SAMPLING_RATE)
-                wav = resampler(wav)
-            
-            # Convert to mono
-            if wav.shape[0] > 1:
-                wav = wav.mean(dim=0)
-            
-            # Inference
-            outputs = self.classifier(wav.numpy(), top_k=top_k)
-            
-            if isinstance(outputs, list) and len(outputs) > 0:
-                # Get top prediction
-                emotion = outputs[0]["label"]
-                confidence = float(outputs[0]["score"])
-            else:
-                emotion = "neutral"
-                confidence = 0.5
-            
-            # Map to standardized emotion labels
-            emotion = emotion.lower().strip()
-            if emotion not in EMOTION_LABELS:
-                emotion = "neutral"
-            
-            return emotion, confidence
-        
-        except Exception as e:
-            print(f"Error predicting emotion for {audio_path}: {e}")
-            return "neutral", 0.0
-    
-    def batch_predict(self, records, audio_dir=None):
-        """
-        Predict emotions for multiple records.
-        
-        Args:
-            records: List of segment records
-            audio_dir: Optional base directory for audio paths
-        
-        Returns:
-            Updated records with emotion field
-        """
-        total = len(records)
-        
-        print(f"\n=== Emotion Tagging ===")
-        print(f"Processing {total} segments...")
-        
-        for idx, record in enumerate(records, start=1):
-            try:
-                audio_path = record.get("segment_path", "")
+        prompt = f"""You are an expert Speech Emotion and Style Classifier.
+Classify the following speech segment transcript and metadata into exactly one of these allowed labels:
+- neutral (standard speech without strong emotion)
+- conversational (casual, friendly, relaxed conversation, e.g., podcasts)
+- formal (lectures, news reporting, formal speeches, academic interviews)
+- excited (high energy, enthusiastic, cheering)
+- happy (joyful, cheerful, laughing)
+- sad (gloomy, sorrowful, crying)
+- angry (annoyed, hostile, shouting, arguing)
+- questioning (asking a query, curious tone, asking questions)
+- serious (grave, solemn, concerned, warning)
+
+Input:
+Transcript: "{transcript}"
+Video Title: "{title}"
+Channel: "{channel}"
+Duration: {duration} seconds
+
+Return a JSON object with exactly these keys:
+{{
+  "emotion": "<one of the allowed labels listed above>",
+  "confidence": <float between 0.0 and 1.0 representing classification confidence>
+}}
+"""
+        # Try Gemini
+        res = query_gemini(prompt)
+        if res and isinstance(res, dict) and "emotion" in res:
+            emotion = res["emotion"].lower().strip()
+            confidence = float(res.get("confidence", 0.90))
+            if emotion in EMOTION_LABELS:
+                return emotion, confidence
                 
-                # Predict emotion
-                emotion, confidence = self.predict(audio_path)
+        # Try Groq
+        res = query_groq(prompt)
+        if res and isinstance(res, dict) and "emotion" in res:
+            emotion = res["emotion"].lower().strip()
+            confidence = float(res.get("confidence", 0.85))
+            if emotion in EMOTION_LABELS:
+                return emotion, confidence
                 
-                record["emotion"] = emotion
-                record["emotion_confidence"] = float(confidence)
+        # Try Sarvam
+        res = query_sarvam(prompt)
+        if res and isinstance(res, dict) and "emotion" in res:
+            emotion = res["emotion"].lower().strip()
+            confidence = float(res.get("confidence", 0.80))
+            if emotion in EMOTION_LABELS:
+                return emotion, confidence
                 
-                if idx % 50 == 0 or idx == 1:
-                    print(f"[{idx}/{total}] {emotion} ({confidence:.2f})")
-            
-            except Exception as e:
-                print(f"Error processing segment {idx}: {e}")
-                record["emotion"] = "neutral"
-                record["emotion_confidence"] = 0.0
-        
-        return records
+        # Fallback to heuristic
+        return heuristic_classify(transcript, title, channel, duration)
 
 
 def tag_emotions(
     input_path="../data/segments_metadata_filtered.jsonl",
     output_path="../data/segments_metadata_emotions.jsonl",
-    model_name="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
 ):
     """
-    Apply emotion tagging to filtered segments.
-    
-    Args:
-        input_path: Path to filtered segments metadata
-        output_path: Path to save emotions metadata
-        model_name: HuggingFace model to use
+    Apply LLM emotion tagging to filtered segments.
     """
-    # Load records
     records = []
     
     try:
@@ -185,31 +261,44 @@ def tag_emotions(
         print("No records found!")
         return
     
-    # Initialize emotion tagger
-    tagger = EmotionTagger(model_name)
+    # Initialize tagger
+    tagger = LLMEmotionTagger()
     
-    # Batch predict
-    records = tagger.batch_predict(records)
+    print(f"\n=== Emotion Tagging (LLM-based) ===")
+    print(f"Processing {total} segments...")
     
-    # Calculate emotion distribution
     emotion_counts = {}
-    for record in records:
-        emotion = record.get("emotion", "unknown")
-        emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
-    
+    for idx, record in enumerate(records, start=1):
+        try:
+            emotion, confidence = tagger.predict(record)
+            
+            record["emotion"] = emotion
+            record["emotion_confidence"] = float(confidence)
+            
+            emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+            
+            if idx % 20 == 0 or idx == 1:
+                print(f"[{idx}/{total}] Tagged: '{record.get('transcript', '')[:30]}' -> {emotion} ({confidence:.2f})")
+                
+        except Exception as e:
+            print(f"Error processing segment {idx}: {e}")
+            record["emotion"] = "neutral"
+            record["emotion_confidence"] = 0.5
+            emotion_counts["neutral"] = emotion_counts.get("neutral", 0) + 1
+            
     # Write output
     with open(output_path, "w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    
+            
     print(f"\n=== Emotion Tagging Summary ===")
     print(f"Total segments tagged: {total}")
     print("\nEmotion Distribution:")
-    for emotion in sorted(EMOTION_LABELS.keys()):
+    for emotion in EMOTION_LABELS:
         count = emotion_counts.get(emotion, 0)
-        percentage = 100 * count / total
+        percentage = 100 * count / total if total > 0 else 0.0
         print(f"  {emotion:15s}: {count:4d} ({percentage:5.1f}%)")
-    
+        
     print(f"\nSaved to: {output_path}")
 
 

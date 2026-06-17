@@ -3,20 +3,26 @@ import torchaudio
 from pathlib import Path
 import tempfile
 import numpy as np
+import os
+from dotenv import load_dotenv
 
 from sarvamai import SarvamAI
 
-client = SarvamAI(
-    api_subscription_key="sk_47ddcxjr_zAcEh9HqfHea2eXrKolShDK4"
-)
+# Load environment variables from .env file
+load_dotenv()
+
+# Get API key from environment
+SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
+if not SARVAM_API_KEY:
+    raise ValueError("SARVAM_API_KEY not found in environment variables. Please set it in .env file or export it.")
+
+client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
 
 TARGET_SR = 16000
 
 
 def transcribe(
-    audio_path,
-    start_time,
-    end_time,
+    segment_path,
 ):
     """
     Transcribe audio segment using Sarvam API with auto language detection.
@@ -24,56 +30,32 @@ def transcribe(
     Sarvam will automatically detect the language from the audio.
     
     Args:
-        audio_path: Path to full audio file
-        start_time: Start time in seconds
-        end_time: End time in seconds
+        segment_path: Path to the audio segment file
     
     Returns:
         Tuple of (transcript, detected_language, confidence)
     """
     try:
-        # Load audio and extract segment
-        wav, sr = torchaudio.load(audio_path)
+        if not os.path.exists(segment_path):
+            # Try relative path check if it doesn't exist directly (in case script is run from a different CWD)
+            path_obj = Path(segment_path)
+            if not path_obj.exists():
+                print(f"Warning: Segment file not found: {segment_path}")
+                return "", "unknown", 0.0
         
-        # Convert to mono if stereo
-        if wav.shape[0] > 1:
-            wav = wav.mean(dim=0, keepdim=True)
+        response = client.speech_to_text.transcribe(
+            audio_file_path=str(segment_path),
+        )
         
-        # Calculate sample indices
-        start_sample = int(start_time * sr)
-        end_sample = int(end_time * sr)
+        # Extract transcript, detected language, and confidence from response
+        transcript = response.get("transcript", "") if isinstance(response, dict) else str(response)
+        detected_language = response.get("language", "unknown") if isinstance(response, dict) else "unknown"
+        confidence = response.get("confidence", 1.0) if isinstance(response, dict) else 1.0
         
-        # Extract segment
-        segment_wav = wav[:, start_sample:end_sample]
-        
-        # Resample to target rate if needed
-        if sr != TARGET_SR:
-            resampler = torchaudio.transforms.Resample(sr, TARGET_SR)
-            segment_wav = resampler(segment_wav)
-        
-        # Save segment to temporary file for API call
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
-            torchaudio.save(tmp_path, segment_wav, TARGET_SR)
-        
-        try:
-            # Let Sarvam auto-detect language - no language_code parameter
-            response = client.speech_to_text.transcribe(
-                audio_file_path=tmp_path,
-            )
-            
-            # Extract transcript, detected language, and confidence from response
-            transcript = response.get("transcript", "") if isinstance(response, dict) else str(response)
-            detected_language = response.get("language", "unknown") if isinstance(response, dict) else "unknown"
-            confidence = response.get("confidence", 1.0) if isinstance(response, dict) else 1.0
-            
-            return transcript, detected_language, confidence
-        
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
+        return transcript, detected_language, confidence
     
     except Exception as e:
-        print(f"Transcription error: {e}")
+        print(f"Transcription error for {segment_path}: {e}")
         return "", "unknown", 0.0
 
 
@@ -104,11 +86,11 @@ def update_segments_metadata(
         start=1,
     ):
         try:
+            segment_path = record.get("segment_path", "")
+            
             # Transcribe segment - Sarvam will auto-detect language
             transcript, detected_lang, confidence = transcribe(
-                record["audio_path"],
-                record["start"],
-                record["end"],
+                segment_path,
             )
 
             record["transcript"] = transcript
@@ -126,8 +108,7 @@ def update_segments_metadata(
         except Exception as e:
             failed += 1
             print(
-                f"Failed: {record['video_id']} "
-                f"{record['start']}-{record['end']}"
+                f"Failed to transcribe record {idx}: {record.get('segment_path')}"
             )
             print(f"Error: {e}")
 
