@@ -159,6 +159,8 @@ def save_segments(
             "duration": (
                 end - start
             ) / SAMPLING_RATE,
+            "language": video_metadata.get("language", "unknown"),
+            "quality_score": 1.0,
         })
 
     return segment_metadata
