@@ -38,7 +38,7 @@ def query_sarvam_llm(prompt):
         client = SarvamAI(api_subscription_key=api_key)
         response = client.chat.completions(
             messages=[{"role": "user", "content": prompt}],
-            model="sarvam-m",
+            model="sarvam-30b",
             temperature=0.1
         )
         
@@ -60,6 +60,8 @@ def query_sarvam_llm(prompt):
         return json.loads(content.strip())
     except Exception as e:
         print(f"Sarvam LLM API error: {e}")
+        print(type(e))
+        print(repr(e))
         return None
 
 class LLMEmotionTagger:
