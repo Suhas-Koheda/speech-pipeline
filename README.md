@@ -31,7 +31,7 @@ flowchart TD
 
 - **Automated Metadata Extraction:** Extracts video metadata (ID, title, channel, duration, upload date) from individual YouTube URLs or entire channels using `yt-dlp`.
 - **High-Quality Audio Acquisition:** Downloads audio streams, resamples them to **16kHz mono WAV**, and organizes them by channel.
-- **Voice Activity Detection (VAD):** Employs **Silero VAD** to find speech segments, merges adjacent segments with gaps ≤ 0.5s, splits segments longer than 15s, and filters out segments shorter than 3s to optimize for ASR training.
+- **Voice Activity Detection (VAD):** Employs **Silero VAD** to find speech segments, merges adjacent segments with gaps ≤ 0.5s, splits segments longer than 20.0s, and filters out segments shorter than 5.0s to optimize for TTS training.
 - **Speaker Diarization:** Identifies unique speaker turn timestamps using **PyAnote Speaker Diarization 3.1**.
 - **Speaker Attribution:** Intersects diarization turns with VAD segments using temporal overlap calculations to assign a `dominant_speaker` (or tag as `MIXED` / `UNKNOWN`).
 - **ASR Inferences:** Transcribes the segmented audio using **AI4Bharat's IndicConformer (600M multilingual model)** with RNN-T decoding.
@@ -51,7 +51,7 @@ speech-pipeline/
 │   └── [Channel_Name]/          # Full-length downloaded mono 16kHz WAV files
 ├── segments/
 │   └── [Channel_Name]/
-│       └── [Video_ID]/          # Segmented short WAV files (3s to 15s)
+│       └── [Video_ID]/          # Segmented WAV files (5.0s to 20.0s)
 └── scripts/
     ├── extract_metatdata.py     # YouTube metadata extractor (Note: script spelling)
     ├── download_videos.py       # Helper for expanding channel playlist URLs
@@ -78,17 +78,20 @@ Install the required Python packages:
 ```bash
 pip install -r requirements.txt
 ```
-*(Ensure you have packages such as `torch`, `torchaudio`, `transformers`, `pyannote.audio`, `silero-vad`, `yt-dlp`, `soundfile`, and `re` installed).*
+*(Ensure you have packages such as `torch`, `torchaudio`, `transformers`, `sarvamai`, `silero-vad`, `yt-dlp`, `soundfile`, and `re` installed).*
 
-### 3. Hugging Face Authentication (For Speaker Diarization)
-PyAnote Speaker Diarization 3.1 requires you to accept user agreements on Hugging Face before loading the model:
-1. Accept the user agreement for [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1).
-2. Accept the user agreement for [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0).
-3. Generate an Access Token under your Hugging Face Account Settings.
-4. Log in locally via CLI:
-   ```bash
-   huggingface-cli login
+### 3. Sarvam API Configuration
+Diarization and Transcription require a valid Sarvam AI API Key.
+1. Create a `.env` file at the project root directory.
+2. Define the `SARVAM_API_KEY` in the file:
+   ```env
+   SARVAM_API_KEY=your_api_key_here
    ```
+   Alternatively, you can export it to your environment:
+   ```bash
+   export SARVAM_API_KEY=your_api_key_here
+   ```
+
 
 ---
 
@@ -150,20 +153,23 @@ python3 scripts/emotion_tagging.py
 ```
 - **Outputs:** Generates `data/segments_metadata_emotions.jsonl` containing the `emotion` and `emotion_confidence` tags.
 
-### Step 9: Manual Review Workflow
-Generate the mandatory manual review CSV sheet, and filter the dataset based on reviewer decisions.
+### Step 9: HTML-Based Manual Review Workflow
+Generate and use a premium interactive HTML dashboard for rapid human verification.
 ```bash
-# 1. Generate the review.csv spreadsheet
-python3 scripts/manual_review.py --generate
+# 1. Generate the review application and data.json
+python3 scripts/generate_review_app.py
 
-# (Open and edit data/review.csv, setting 'approved' to True/False)
+# 2. Open review/index.html in Google Chrome to inspect and audit speech segments.
+#    Use keyboard shortcuts: 'A' to approve, 'R' to reject, Left/Right arrows to navigate.
+#    Click 'Export Reviews (CSV)' to download 'review_results.csv'.
 
-# 2. Extract approved segments
-python3 scripts/manual_review.py --filter
+# 3. Apply the review results (place the downloaded CSV in the project)
+python3 scripts/apply_review.py
 ```
 - **Outputs:**
-  - `data/review.csv` (CSV format with approval flags)
-  - `data/segments_metadata_final.jsonl` (Final accepted dataset)
+  - `review/index.html` (Interactive review tool)
+  - `review/data.json` (Exported segment data)
+  - `data/segments_metadata_final.jsonl` (Final approved dataset)
   - `data/segments_metadata_rejected.jsonl` (Trace of rejected segments)
 
 ### Step 10: Hugging Face Export

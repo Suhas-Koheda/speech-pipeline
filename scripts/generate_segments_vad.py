@@ -13,6 +13,11 @@ from silero_vad import (
 
 SAMPLING_RATE = 16000
 
+# TTS-optimized VAD configuration
+MIN_SEGMENT_DURATION = 5.0
+MAX_SEGMENT_DURATION = 20.0
+MERGE_GAP_SECONDS = 0.5
+
 
 def sanitize_name(name):
     return re.sub(r'[<>:"/\\|?*]', "_", name)
@@ -21,7 +26,7 @@ def sanitize_name(name):
 def merge_segments(
     timestamps,
     sampling_rate=SAMPLING_RATE,
-    max_gap_seconds=0.5,
+    max_gap_seconds=MERGE_GAP_SECONDS,
 ):
     max_gap = int(max_gap_seconds * sampling_rate)
 
@@ -46,7 +51,7 @@ def merge_segments(
 def split_long_segments(
     timestamps,
     sampling_rate=SAMPLING_RATE,
-    max_duration_seconds=15,
+    max_duration_seconds=MAX_SEGMENT_DURATION,
 ):
     max_samples = int(
         max_duration_seconds * sampling_rate
@@ -78,7 +83,7 @@ def split_long_segments(
 def filter_segments(
     timestamps,
     sampling_rate=SAMPLING_RATE,
-    min_duration_seconds=3.0,
+    min_duration_seconds=MIN_SEGMENT_DURATION,
 ):
     filtered = []
 
@@ -103,15 +108,13 @@ def print_stats(timestamps):
         for ts in timestamps
     ]
 
-    print(f"Segments: {len(timestamps)}")
-    print(
-        f"Speech Duration: {sum(durations)/60:.2f} min"
-    )
-    print(
-        f"Average: {sum(durations)/len(durations):.2f} sec"
-    )
-    print(f"Max: {max(durations):.2f} sec")
-    print(f"Min: {min(durations):.2f} sec")
+    print(f"--- Segment Duration Statistics ---")
+    print(f"Total Segments: {len(timestamps)}")
+    print(f"Total Speech Duration: {sum(durations)/60:.2f} min ({sum(durations):.2f} sec)")
+    print(f"Average Segment Duration: {sum(durations)/len(durations):.2f} sec")
+    print(f"Max Segment Duration: {max(durations):.2f} sec")
+    print(f"Min Segment Duration: {min(durations):.2f} sec")
+    print(f"----------------------------------")
 
 
 def save_segments(
@@ -148,6 +151,8 @@ def save_segments(
             SAMPLING_RATE,
         )
 
+        duration = (end - start) / SAMPLING_RATE
+
         segment_metadata.append({
             "video_id": video_metadata["video_id"],
             "channel": video_metadata["channel"],
@@ -156,9 +161,7 @@ def save_segments(
             "segment_path": str(segment_path),
             "start": start / SAMPLING_RATE,
             "end": end / SAMPLING_RATE,
-            "duration": (
-                end - start
-            ) / SAMPLING_RATE,
+            "duration": duration,
             "language": video_metadata.get("language", "unknown"),
             "quality_score": 1.0,
         })
@@ -195,7 +198,7 @@ def process_audio(metadata):
 
             merged = merge_segments(
                 speech_timestamps,
-                max_gap_seconds=0.5,
+                max_gap_seconds=MERGE_GAP_SECONDS,
             )
 
             print(
@@ -205,7 +208,7 @@ def process_audio(metadata):
             split_segments = (
                 split_long_segments(
                     merged,
-                    max_duration_seconds=15,
+                    max_duration_seconds=MAX_SEGMENT_DURATION,
                 )
             )
 
@@ -216,7 +219,7 @@ def process_audio(metadata):
             final_segments = (
                 filter_segments(
                     split_segments,
-                    min_duration_seconds=3.0,
+                    min_duration_seconds=MIN_SEGMENT_DURATION,
                 )
             )
 
