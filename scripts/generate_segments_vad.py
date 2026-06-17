@@ -285,14 +285,15 @@ def process_audio(metadata):
 
 
 def main():
-    with open(
-        "../data/metadata.json",
-        "r",
-        encoding="utf-8",
-    ) as f:
-        metadata = json.load(f)
+    print("VAD Segmentation is deprecated and removed from the active workflow. Slicing is now done natively based on ASR/diarization timestamps.")
+    # with open(
+    #     "../data/metadata.json",
+    #     "r",
+    #     encoding="utf-8",
+    # ) as f:
+    #     metadata = json.load(f)
 
-    process_audio(metadata)
+    # process_audio(metadata)
 
 # if __name__ == "__main__":
 #     main()

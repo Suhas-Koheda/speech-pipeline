@@ -48,7 +48,7 @@ def attribute_transcripts():
     total_chars = 0
     
     # 3. Perform attribution
-    print("Mapping transcripts based on overlapping timestamps...")
+    print("Mapping transcripts based on overlapping timestamps (overlap ratio >= 0.25)...")
     for idx, record in enumerate(records, start=1):
         video_id = record.get("video_id")
         seg_start = record.get("start", 0.0)
@@ -76,10 +76,17 @@ def attribute_transcripts():
         for entry in entries:
             entry_start = float(entry.get("start_time_seconds", 0.0))
             entry_end = float(entry.get("end_time_seconds", 0.0))
+            entry_dur = entry_end - entry_start
             
+            if entry_dur <= 0:
+                continue
+                
             # Check overlap: max(start) < min(end)
-            overlap_duration = min(seg_end, entry_end) - max(seg_start, entry_start)
-            if overlap_duration > 0:
+            intersection = max(0.0, min(seg_end, entry_end) - max(seg_start, entry_start))
+            overlap_ratio = intersection / entry_dur
+            
+            # Require at least 25% overlap of the chunk's duration
+            if overlap_ratio >= 0.25:
                 overlapping_entries.append(entry)
                 
         if overlapping_entries:
@@ -126,7 +133,8 @@ def attribute_transcripts():
     print(f"Saved updated segment records to: {segments_path}")
 
 def main():
-    attribute_transcripts()
+    print("Transcript Attribution is deprecated and removed from the active workflow. Slicing is now done natively based on ASR/diarization timestamps.")
+    # attribute_transcripts()
 
 # if __name__ == "__main__":
 #     main()

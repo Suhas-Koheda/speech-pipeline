@@ -28,42 +28,30 @@ PIPELINE_STEPS = [
     },
     {
         "step": 2,
-        "name": "Voice Activity Detection (VAD) Segmentation",
-        "script": "generate_segments_vad.py",
-        "description": "Slices full-length audio tracks into TTS-optimized segments (5.0s - 20.0s)."
+        "name": "Sarvam ASR, Diarization & Audio Slicing",
+        "script": "diarize_audio.py",
+        "description": "Performs full-audio transcription, speaker diarization, splits long chunks, and slices candidate WAVs."
     },
     {
         "step": 3,
-        "name": "Sarvam ASR & Speaker Diarization",
-        "script": "diarize_audio.py",
-        "description": "Identifies speaker turn timestamps and transcribes full audio using Sarvam Batch API."
+        "name": "TTS Quality Filtering",
+        "script": "quality_filter.py",
+        "description": "Applies strict duration, transcript length, and speaker verification filters."
     },
     {
         "step": 4,
-        "name": "Speaker Attribution",
-        "script": "attribute_speakers.py",
-        "description": "Maps the diarized speaker turn timelines onto the sliced VAD segments."
+        "name": "Emotion & Style Tagging",
+        "script": "emotion_tagging.py",
+        "description": "Applies LLM emotion / speaking-style classification using the official Sarvam SDK."
     },
     {
         "step": 5,
-        "name": "Transcript Attribution",
-        "script": "attribute_transcripts.py",
-        "description": "Attributes the generated full transcript chunks to individual VAD segments."
+        "name": "Dataset Validation & Diagnostics",
+        "script": "validate_dataset.py",
+        "description": "Validates transcripts, lexical repetition, duration limits, and speaker assignments, and produces diagnostic reports."
     },
     {
         "step": 6,
-        "name": "TTS Quality Filtering",
-        "script": "quality_filter.py",
-        "description": "Applies rigorous speaker purity, noise, clipping, and confidence filters."
-    },
-    {
-        "step": 7,
-        "name": "Emotion & Style Tagging",
-        "script": "emotion_tagging.py",
-        "description": "Applies LLM emotion / speaking-style classification to the transcripts."
-    },
-    {
-        "step": 8,
         "name": "HTML Review Tool Generation",
         "script": "generate_review_app.py",
         "description": "Creates the self-contained interactive browser-based review dashboard."

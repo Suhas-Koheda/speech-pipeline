@@ -145,7 +145,8 @@ def assign_speakers():
 
 
 def main():
-    assign_speakers()
+    print("Speaker Attribution is deprecated and removed from the active workflow. Slicing is now done natively based on ASR/diarization timestamps.")
+    # assign_speakers()
 
 # if __name__ == "__main__":
 #     main()

@@ -18,6 +18,7 @@ def generate_app():
     
     # 1. Discover segments metadata file
     metadata_paths = [
+        ROOT_DIR / "data" / "segments_metadata_validated.jsonl",
         ROOT_DIR / "data" / "segments_metadata_emotions.jsonl",
         ROOT_DIR / "data" / "segments_metadata_filtered.jsonl",
         ROOT_DIR / "data" / "segments_metadata.jsonl"
