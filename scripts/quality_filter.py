@@ -211,7 +211,7 @@ def apply_quality_filters(input_path=None, output_path=None):
     passed = 0
     failed = 0
     
-    print(f"\n=== Quality Filtering ===")
+    print("\n=== Quality Filtering ===")
     print(f"Processing {total} segments...")
     
     filtered_records = []
