@@ -12,17 +12,18 @@ flowchart TD
     B -->|metadata.json| C[scripts/download_audio.py]
     C -->|Downloads WAVs| D[scripts/generate_segments_vad.py]
     
+    %% Diarization & ASR Branch
+    C -->|Full WAVs| E[scripts/diarize_audio.py]
+    E -->|Updates metadata.json with speaker_data| F
+    E -->|Saves raw responses to sarvam_transcripts.json| H[scripts/attribute_transcripts.py]
+    
     %% VAD Branch
     D -->|segments_metadata.jsonl| F[scripts/attribute_speakers.py]
     D -->|Saves Segment WAVs| G[segments/ channel / video_id / ...]
     
-    %% Diarization Branch
-    C -->|Full WAVs| E[scripts/diarize_audio.py]
-    E -->|Updates metadata.json with speaker_data| F
-    
     %% Final Integration
-    F -->|Maps segments to speakers| H[scripts/extarct_transcript.py]
-    H -->|Transcribes using IndicConformer| I[(Final Dataset: segments_metadata.jsonl)]
+    F -->|Maps segments to speakers| H
+    H -->|Attributes full-audio text to segments| I[(Final Dataset: segments_metadata.jsonl)]
 ```
 
 ---
@@ -32,9 +33,8 @@ flowchart TD
 - **Automated Metadata Extraction:** Extracts video metadata (ID, title, channel, duration, upload date) from individual YouTube URLs or entire channels using `yt-dlp`.
 - **High-Quality Audio Acquisition:** Downloads audio streams, resamples them to **16kHz mono WAV**, and organizes them by channel.
 - **Voice Activity Detection (VAD):** Employs **Silero VAD** to find speech segments, merges adjacent segments with gaps ≤ 0.5s, splits segments longer than 20.0s, and filters out segments shorter than 5.0s to optimize for TTS training.
-- **Speaker Diarization:** Identifies unique speaker turn timestamps using **PyAnote Speaker Diarization 3.1**.
-- **Speaker Attribution:** Intersects diarization turns with VAD segments using temporal overlap calculations to assign a `dominant_speaker` (or tag as `MIXED` / `UNKNOWN`).
-- **ASR Inferences:** Transcribes the segmented audio using **AI4Bharat's IndicConformer (600M multilingual model)** with RNN-T decoding.
+- **Speaker Diarization & ASR:** Identifies unique speaker turn timestamps and transcribes full-length audio tracks in a single batch request using the **Sarvam Diarization & ASR APIs**.
+- **Speaker & Transcript Attribution:** Intersects diarization speaker turns and transcript sentences with VAD segments using temporal overlap calculations, attributing both speakers and text without redundant API calls.
 
 ---
 
@@ -46,6 +46,7 @@ speech-pipeline/
 ├── README.md                    # Project documentation
 ├── data/
 │   ├── metadata.json            # Ingested video metadata + speaker diarization timestamps
+│   ├── sarvam_transcripts.json  # Raw responses from full-audio Sarvam Batch job
 │   └── segments_metadata.jsonl  # VAD segments metadata, speaker mappings, and transcripts
 ├── audio/
 │   └── [Channel_Name]/          # Full-length downloaded mono 16kHz WAV files
@@ -57,9 +58,9 @@ speech-pipeline/
     ├── download_videos.py       # Helper for expanding channel playlist URLs
     ├── download_audio.py        # YouTube audio downloader and resampler
     ├── generate_segments_vad.py # Silero VAD segment generator
-    ├── diarize_audio.py         # PyAnote speaker diarization
+    ├── diarize_audio.py         # Sarvam ASR & speaker diarization orchestrator
     ├── attribute_speakers.py    # Temporal speaker overlapping and attribution matcher
-    └── extarct_transcript.py    # IndicConformer transcription script (Note: script spelling)
+    └── attribute_transcripts.py # Maps full-audio transcript text onto VAD segments
 ```
 
 ---
@@ -118,12 +119,14 @@ python3 scripts/generate_segments_vad.py
   - `segments/[Channel_Name]/[Video_ID]/segment_XXXXX.wav`
   - `data/segments_metadata.jsonl`
 
-### Step 4: Speaker Diarization
-Run speaker diarization on the full audio files to identify who spoke when.
+### Step 4: Sarvam ASR & Speaker Diarization
+Run full-audio transcription and speaker diarization in a single Sarvam batch job.
 ```bash
 python3 scripts/diarize_audio.py
 ```
-- **Outputs:** Updates `data/metadata.json` with the `speaker_data` field mapping speaker names to turn timestamps.
+- **Outputs:**
+  - Updates `data/metadata.json` with `speaker_data` turn timestamps.
+  - Caches raw STT responses in `data/sarvam_transcripts.json`.
 
 ### Step 5: Attribute Speakers
 Map the diarized speaker intervals to the VAD chunks using overlapping logic.
@@ -132,10 +135,10 @@ python3 scripts/attribute_speakers.py
 ```
 - **Outputs:** Appends `dominant_speaker` and `speaker_overlap` fields to each line in `data/segments_metadata.jsonl`.
 
-### Step 6: Transcribe Audio Chunks
-Generate multilingual transcriptions using Sarvam ASR API directly on the audio segments.
+### Step 6: Attribute Transcripts
+Map the full audio transcripts onto the individual VAD segment chunks using temporal overlaps.
 ```bash
-python3 scripts/extarct_transcript.py
+python3 scripts/attribute_transcripts.py
 ```
 - **Outputs:** Appends `transcript`, `language`, and `transcription_confidence` fields to `data/segments_metadata.jsonl`.
 

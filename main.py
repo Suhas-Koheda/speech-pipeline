@@ -34,9 +34,9 @@ PIPELINE_STEPS = [
     },
     {
         "step": 3,
-        "name": "Speaker Diarization",
+        "name": "Sarvam ASR & Speaker Diarization",
         "script": "diarize_audio.py",
-        "description": "Identifies speaker turn timestamps using PyAnote Speaker Diarization."
+        "description": "Identifies speaker turn timestamps and transcribes full audio using Sarvam Batch API."
     },
     {
         "step": 4,
@@ -46,9 +46,9 @@ PIPELINE_STEPS = [
     },
     {
         "step": 5,
-        "name": "ASR Transcription",
-        "script": "extarct_transcript.py",
-        "description": "Generates transcripts and language tags per segment using Sarvam ASR API."
+        "name": "Transcript Attribution",
+        "script": "attribute_transcripts.py",
+        "description": "Attributes the generated full transcript chunks to individual VAD segments."
     },
     {
         "step": 6,

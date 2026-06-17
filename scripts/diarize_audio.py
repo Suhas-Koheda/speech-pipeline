@@ -2,7 +2,8 @@
 Speaker Diarization using Sarvam Diarization Batch API.
 
 Replaces the local PyAnnote engine with Sarvam's cloud diarization service.
-Outputs speaker segment intervals in standard speaker_data format to metadata.json.
+Outputs speaker segment intervals in standard speaker_data format to metadata.json
+and saves the raw Sarvam response to data/sarvam_transcripts.json.
 """
 
 import sys
@@ -35,6 +36,24 @@ def save_stats(processed, failed, speakers, turns):
         json.dump(stats, f, indent=4)
     print(f"\nDiarization stats saved to {stats_path}")
 
+def save_transcript_response(video_id, response_data):
+    transcripts_path = ROOT_DIR / "data" / "sarvam_transcripts.json"
+    transcripts_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    data = {}
+    if transcripts_path.exists():
+        try:
+            with open(transcripts_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load existing sarvam_transcripts.json: {e}")
+            
+    data[video_id] = response_data
+    
+    with open(transcripts_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+    print(f"Saved raw Sarvam response for video {video_id} to {transcripts_path}")
+
 def diarize_audio(metadata):
     # Stats tracking
     videos_processed = 0
@@ -55,7 +74,13 @@ def diarize_audio(metadata):
     for video in metadata:
         title = video.get("title", "Unknown Video")
         audio_path = video.get("audio_path")
+        video_id = video.get("video_id")
         
+        if not video_id:
+            print(f"Error: video_id is missing for video: {title}")
+            videos_failed += 1
+            continue
+            
         # Resolve path relative to project root
         if audio_path:
             abs_audio_path = ROOT_DIR / audio_path.replace("../", "")
@@ -105,6 +130,9 @@ def diarize_audio(metadata):
                     
                 with open(json_files[0], "r", encoding="utf-8") as f:
                     result = json.load(f)
+                
+                # Save raw response for ASR reuse
+                save_transcript_response(video_id, result)
                     
                 # Extract entries
                 entries = []
