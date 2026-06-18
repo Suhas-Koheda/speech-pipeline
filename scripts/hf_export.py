@@ -45,8 +45,7 @@ def prepare_dataset_record(segment_record):
     Prepare a single record matching the HuggingFace dataset schema.
     Only fields backed by real data are included:
       - audio, transcript, language, speaker_id: from Sarvam ASR
-      - style: from Sarvam LLM (tag_style.py)
-      - style_confidence: from Sarvam LLM response (omitted if absent)
+      - style, emotion: from Sarvam LLM (tag_style.py)
     """
     record = {
         "audio": segment_record.get("segment_path", ""),
@@ -54,11 +53,8 @@ def prepare_dataset_record(segment_record):
         "language": segment_record.get("language", "unknown"),
         "speaker_id": segment_record.get("dominant_speaker", "UNKNOWN"),
         "style": segment_record.get("style", "neutral"),
+        "emotion": segment_record.get("emotion", "neutral"),
     }
-
-    # style_confidence: only include if the LLM actually returned it
-    if "style_confidence" in segment_record:
-        record["style_confidence"] = float(segment_record["style_confidence"])
 
     return record
 

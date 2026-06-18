@@ -79,65 +79,6 @@ def save_transcript_response(video_id, response_data):
         json.dump(data, f, ensure_ascii=False, indent=4)
     print(f"Saved raw Sarvam response for video {video_id} to {transcripts_path}")
 
-def split_entry_recursively(entry):
-    """
-    Recursively splits entries longer than 15.0 seconds at sentence or word boundaries,
-    estimating timestamps proportionally by character length.
-    """
-    start = float(entry.get("start_time_seconds", 0.0))
-    end = float(entry.get("end_time_seconds", 0.0))
-    transcript = entry.get("transcript", "").strip()
-    sp_id = entry.get("speaker_id")
-    
-    dur = end - start
-    if dur <= 15.0 or not transcript:
-        return [entry]
-        
-    # Split by Telugu/English punctuation boundaries (. ? ! | || \n)
-    sentences = [s.strip() for s in re.split(r'(?<=[.!?|])\s+', transcript) if s.strip()]
-    
-    if len(sentences) > 1:
-        total_chars = sum(len(s) for s in sentences)
-        res = []
-        curr_start = start
-        for s in sentences:
-            fraction = len(s) / total_chars
-            s_dur = dur * fraction
-            res.extend(split_entry_recursively({
-                "transcript": s,
-                "start_time_seconds": curr_start,
-                "end_time_seconds": curr_start + s_dur,
-                "speaker_id": sp_id
-            }))
-            curr_start += s_dur
-        return res
-        
-    # Fallback to word splitting if a single sentence is > 15s
-    words = transcript.split()
-    if len(words) > 1:
-        mid = len(words) // 2
-        half1 = " ".join(words[:mid])
-        half2 = " ".join(words[mid:])
-        total_chars = len(half1) + len(half2)
-        
-        res = []
-        dur1 = dur * (len(half1) / total_chars)
-        res.extend(split_entry_recursively({
-            "transcript": half1,
-            "start_time_seconds": start,
-            "end_time_seconds": start + dur1,
-            "speaker_id": sp_id
-        }))
-        res.extend(split_entry_recursively({
-            "transcript": half2,
-            "start_time_seconds": start + dur1,
-            "end_time_seconds": end,
-            "speaker_id": sp_id
-        }))
-        return res
-        
-    return [entry]
-
 def sanitize_name(name):
     return re.sub(r'[<>:"/\\|?*]', "_", name)
 
@@ -297,68 +238,63 @@ def diarize_audio(metadata):
                 sp_name = "UNKNOWN"
                 speaker = "unknown"
                 
-            # Split recursively if duration > 15 seconds
-            split_pieces = split_entry_recursively(entry)
+            start = float(entry.get("start_time_seconds", 0.0))
+            end = float(entry.get("end_time_seconds", 0.0))
+            dur = end - start
+            transcript_text = entry.get("transcript", "").strip()
+                
+            # Check for physical audio bounds
+            start_sample = int(start * sr)
+            end_sample = int(end * sr)
             
-            for piece in split_pieces:
-                start = float(piece.get("start_time_seconds", 0.0))
-                end = float(piece.get("end_time_seconds", 0.0))
-                dur = end - start
-                transcript_text = piece.get("transcript", "").strip()
+            if start_sample < 0:
+                start_sample = 0
+            if end_sample > len(audio_data):
+                end_sample = len(audio_data)
                 
-                # Check for physical audio bounds
-                start_sample = int(start * sr)
-                end_sample = int(end * sr)
+            if end_sample <= start_sample:
+                continue
                 
-                if start_sample < 0:
-                    start_sample = 0
-                if end_sample > len(audio_data):
-                    end_sample = len(audio_data)
-                    
-                if end_sample <= start_sample:
-                    continue
-                    
-                # Slice physical wav file
-                segment_audio = audio_data[start_sample:end_sample]
-                segment_filename = f"segment_{sliced_count:05d}.wav"
-                segment_path = output_dir / segment_filename
-                
-                sf.write(segment_path, segment_audio, sr)
-                
-                # Prepare record with both final and backwards-compatible schemas
-                rel_segment_path = f"../segments/{channel_name}/{video_id}/{segment_filename}"
-                record = {
-                    "video_id": video_id,
-                    "channel": video.get("channel"),
-                    "title": title,
-                    "audio_path": rel_segment_path,       # final schema
-                    "segment_path": rel_segment_path,     # legacy compat
-                    "start": start,                       # final schema
-                    "segment_start": start,               # legacy compat
-                    "end": end,                           # final schema
-                    "segment_end": end,                   # legacy compat
-                    "duration": dur,                      # final schema
-                    "speaker": speaker,                   # final schema
-                    "dominant_speaker": sp_name,          # legacy compat
-                    "transcript": transcript_text,
-                    "language": result.get("language_code", "unknown"),
-                    "emotion": "neutral",                 # updated by tagging step
-                    "quality_issues": []
-                }
-                
-                all_candidate_records.append(record)
-                sliced_count += 1
-                
-                # Track in local speaker metadata
-                if sp_name != "UNKNOWN":
-                    if sp_name not in speaker_metadata:
-                        speaker_metadata[sp_name] = []
-                    speaker_metadata[sp_name].append({
-                        "start": start,
-                        "end": end
-                    })
-                    all_unique_speakers.add(sp_name)
-                    total_turns += 1
+            # Slice physical wav file
+            segment_audio = audio_data[start_sample:end_sample]
+            segment_filename = f"segment_{sliced_count:05d}.wav"
+            segment_path = output_dir / segment_filename
+            
+            sf.write(segment_path, segment_audio, sr)
+            
+            # Prepare record with both final and backwards-compatible schemas
+            rel_segment_path = f"../segments/{channel_name}/{video_id}/{segment_filename}"
+            record = {
+                "video_id": video_id,
+                "channel": video.get("channel"),
+                "title": title,
+                "audio_path": rel_segment_path,       # final schema
+                "segment_path": rel_segment_path,     # legacy compat
+                "start": start,                       # final schema
+                "segment_start": start,               # legacy compat
+                "end": end,                           # final schema
+                "segment_end": end,                   # legacy compat
+                "duration": dur,                      # final schema
+                "speaker": speaker,                   # final schema
+                "dominant_speaker": sp_name,          # legacy compat
+                "transcript": transcript_text,
+                "language": result.get("language_code", "unknown"),
+                "quality_issues": []
+            }
+            
+            all_candidate_records.append(record)
+            sliced_count += 1
+            
+            # Track in local speaker metadata
+            if sp_name != "UNKNOWN":
+                if sp_name not in speaker_metadata:
+                    speaker_metadata[sp_name] = []
+                speaker_metadata[sp_name].append({
+                    "start": start,
+                    "end": end
+                })
+                all_unique_speakers.add(sp_name)
+                total_turns += 1
                     
         # Update metadata speaker list in place
         video["speaker_data"] = speaker_metadata

@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import json
+import re
 import threading
 from pathlib import Path
 from collections import defaultdict
@@ -23,11 +24,18 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 # Load environment variables
 load_dotenv()
 
-# Valid style labels
+API_KEY = os.getenv("SARVAM_API_KEY")
+client = SarvamAI(api_subscription_key=API_KEY) if API_KEY else None
+
+# Valid style and emotion labels
 VALID_STYLES = {
     "conversational", "formal", "informative", "educational", "storytelling",
     "interview", "discussion", "motivational", "humorous", "analytical",
-    "excited", "happy", "sad", "angry", "neutral"
+    "neutral"
+}
+
+VALID_EMOTIONS = {
+    "neutral", "happy", "sad", "angry", "excited", "fearful", "surprised"
 }
 
 class ProgressTracker:
@@ -41,7 +49,7 @@ class ProgressTracker:
         self.failed = 0
         self.retries = 0
 
-    def record_success(self, duration, style, retries_cnt):
+    def record_success(self, duration, tag_info, retries_cnt):
         with self.lock:
             self.completed += 1
             self.successful += 1
@@ -49,7 +57,7 @@ class ProgressTracker:
             self.retries += retries_cnt
             avg_time = self.total_latency / self.completed if self.completed > 0 else 0.0
             print(f"[{self.completed}/{self.total}]")
-            print(f"style={style}")
+            print(f"tags={tag_info}")
             print(f"time={duration:.1f}s")
             print(f"avg={avg_time:.1f}s/request")
             sys.stdout.flush()
@@ -62,32 +70,34 @@ class ProgressTracker:
             self.retries += retries_cnt
             avg_time = self.total_latency / self.completed if self.completed > 0 else 0.0
             print(f"[{self.completed}/{self.total}]")
-            print("style=failed")
+            print("tags=failed")
             print(f"time={duration:.1f}s")
             print(f"avg={avg_time:.1f}s/request")
             sys.stdout.flush()
 
 def tag_style_with_retry(text):
     """
-    Query Sarvam-30b to tag speaking style.
+    Query Sarvam-30b to tag speaking style and emotion.
     Uses exponential backoff for retries on rate limits or failures.
-    Returns (style, confidence_or_None, retries_used, duration, success).
-    confidence is the raw float from the model JSON, or None on failure.
+    Returns (style, emotion, retries_used, duration, success).
     """
-    api_key = os.getenv("SARVAM_API_KEY")
-    if not api_key:
-        print("Warning: SARVAM_API_KEY is not set.")
-        return "neutral", None, 0, 0.0, False
-        
-    client = SarvamAI(api_subscription_key=api_key)
+    if not text or not text.strip():
+        return None, None, 0, 0.0, False
+
+    if not client:
+        print("Warning: Sarvam client is not initialized (missing API key).")
+        return None, None, 0, 0.0, False
+
+    # Truncate text to avoid overly large prompt sizes
+    text = text[:1000]
     
     prompt = f"""You are a speech dataset annotator.
 
-Classify the speaking style of the transcript.
+Classify the speaking style and the emotion of the transcript.
 
 Do not rewrite, correct, normalize, translate, or modify the transcript.
 
-Choose exactly one label:
+Choose exactly one label for style:
 * conversational
 * formal
 * informative
@@ -98,16 +108,21 @@ Choose exactly one label:
 * motivational
 * humorous
 * analytical
-* excited
+* neutral
+
+Choose exactly one label for emotion:
+* neutral
 * happy
 * sad
 * angry
-* neutral
+* excited
+* fearful
+* surprised
 
 Return ONLY JSON:
 {{
 "style": "chosen_style",
-"confidence": <float 0.0-1.0 reflecting your certainty>
+"emotion": "chosen_emotion"
 }}
 
 Input:
@@ -135,20 +150,23 @@ Output:"""
                 content = response["choices"][0]["message"]["content"]
                 
             content = content.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.endswith("```"):
-                content = content[:-3]
+            
+            # Robust JSON extraction using regex
+            match = re.search(r"\{.*\}", content, re.S)
+            if not match:
+                raise ValueError("No JSON object found in LLM response.")
                 
-            data = json.loads(content.strip())
+            data = json.loads(match.group())
             style = data.get("style", "neutral").lower().strip()
-            confidence = float(data.get("confidence", 1.0))
+            emotion = data.get("emotion", "neutral").lower().strip()
             
             if style not in VALID_STYLES:
                 style = "neutral"
+            if emotion not in VALID_EMOTIONS:
+                emotion = "neutral"
                 
             duration = time.time() - start_time
-            return style, confidence, retries_used, duration, True
+            return style, emotion, retries_used, duration, True
             
         except Exception as e:
             err_str = str(e).lower()
@@ -160,25 +178,27 @@ Output:"""
                 time.sleep(sleep_time)
             else:
                 duration = time.time() - start_time
-                return "neutral", None, retries_used, duration, False
+                return None, None, retries_used, duration, False
 
 def process_record_task(record, idx, tracker):
     """Worker task that processes a single segment record."""
     transcript = record.get("transcript", "")
-    style, confidence, retries_used, duration, success = tag_style_with_retry(transcript)
+    style, emotion, retries_used, duration, success = tag_style_with_retry(transcript)
     
     if success:
-        tracker.record_success(duration, style, retries_used)
+        tracker.record_success(duration, f"{style}/{emotion}", retries_used)
+        if style:
+            record["style"] = style
+        if emotion:
+            record["emotion"] = emotion
     else:
         tracker.record_failure(duration, retries_used)
         
-    # Store style from Sarvam LLM output
-    record["style"] = style
-    # Only store confidence if the model returned a real value
-    if confidence is not None:
-        record["style_confidence"] = confidence
-    elif "style_confidence" in record:
+    # Completely remove style_confidence / confidence
+    if "style_confidence" in record:
         del record["style_confidence"]
+    if "emotion_confidence" in record:
+        del record["emotion_confidence"]
     
     return record
 

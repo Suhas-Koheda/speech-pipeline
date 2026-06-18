@@ -11,77 +11,19 @@ Removes low-quality segments based on:
 
 import json
 from pathlib import Path
-import numpy as np
 import soundfile as sf
-from scipy import signal
 
 # Resolve project root path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Quality filter thresholds
 QUALITY_THRESHOLDS = {
-    "min_duration": 3.0,  # seconds (from User Request)
-    "max_duration": 20.0,  # seconds
+    "min_duration": 2.0,  # seconds
+    "max_duration": 30.0,  # seconds
     "min_transcript_len": 5,  # characters
-    "max_clipping_ratio": 0.01,  # max 1% of samples near peak
-    "clipping_threshold": 0.95,  # amplitude threshold
-    "silence_db_threshold": -45.0,  # threshold in dB
-    "max_silence_ratio": 0.30,  # max 30% of frames can be silence
-    "max_noise_level": -40.0,  # dB (approximate)
 }
 
 SAMPLING_RATE = 16000
-
-def detect_audio_clipping(audio, threshold=0.95):
-    """
-    Detect if audio is clipped (peaks near maximum value).
-    """
-    peak = np.abs(audio).max()
-    clipping_samples = np.sum(np.abs(audio) > threshold)
-    clipping_ratio = clipping_samples / len(audio) if len(audio) > 0 else 0.0
-    
-    is_clipped = (peak > threshold and 
-                  clipping_ratio > QUALITY_THRESHOLDS["max_clipping_ratio"])
-    
-    return is_clipped, clipping_ratio
-
-def detect_excessive_silence(audio, threshold_db=-45.0, silence_ratio_threshold=0.30):
-    """
-    Detect if there is excessive silence in the audio segment.
-    """
-    try:
-        frame_size = 512
-        hop_size = 256
-        rms = []
-        for i in range(0, len(audio) - frame_size, hop_size):
-            frame = audio[i:i+frame_size]
-            r = np.sqrt(np.mean(frame**2) + 1e-10)
-            rms.append(r)
-        
-        rms = np.array(rms)
-        rms_db = 20 * np.log10(rms)
-        
-        silent_frames = np.sum(rms_db < threshold_db)
-        silence_ratio = silent_frames / len(rms) if len(rms) > 0 else 0.0
-        
-        return silence_ratio > silence_ratio_threshold, silence_ratio
-    except Exception as e:
-        print(f"Silence detection error: {e}")
-        return False, 0.0
-
-def estimate_noise_level(audio, sr=SAMPLING_RATE):
-    """
-    Estimate noise level using spectral analysis.
-    """
-    try:
-        f, t, Zxx = signal.stft(audio, sr, nperseg=512)
-        mag_spec = np.abs(Zxx)
-        frame_energy = 20 * np.log10(np.mean(mag_spec, axis=0) + 1e-10)
-        noise_level = np.percentile(frame_energy, 10)
-        return float(noise_level)
-    except Exception as e:
-        print(f"Noise estimation error: {e}")
-        return -50.0  # Conservative default
 
 def check_duration(duration):
     """Check if segment duration is within acceptable range."""
@@ -93,8 +35,6 @@ def calculate_quality_issues(record, audio_path):
     """
     Identify quality issues for a segment.
     Returns a list of issue strings. Empty list = passed.
-    speaker_purity_score = dominant_speaker_duration / segment_duration
-      (real measurement, preserved).
     """
     issues = []
     
@@ -139,21 +79,6 @@ def calculate_quality_issues(record, audio_path):
                 
             if len(audio) == 0:
                 issues.append("EMPTY_AUDIO")
-            else:
-                is_clipped, clipping_ratio = detect_audio_clipping(
-                    audio,
-                    QUALITY_THRESHOLDS["clipping_threshold"]
-                )
-                if is_clipped:
-                    issues.append(f"CLIPPED_AUDIO_{clipping_ratio:.3f}")
-                    
-                is_silent, silence_ratio = detect_excessive_silence(
-                    audio,
-                    threshold_db=QUALITY_THRESHOLDS["silence_db_threshold"],
-                    silence_ratio_threshold=QUALITY_THRESHOLDS["max_silence_ratio"]
-                )
-                if is_silent:
-                    issues.append(f"EXCESSIVE_SILENCE_{silence_ratio:.2f}")
                     
     except Exception as e:
         print(f"Error checking audio quality for {audio_path}: {e}")

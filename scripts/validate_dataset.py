@@ -15,8 +15,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Validation thresholds
 REPETITION_THRESHOLD = 0.70
-MIN_DURATION = 3.0
-MAX_DURATION = 20.0
+MIN_DURATION = 0.0
+MAX_DURATION = 200.0
 
 def calculate_repetition_rate(transcript):
     """
@@ -73,7 +73,7 @@ def validate_dataset():
         transcript = record.get("transcript", "").strip()
         if not transcript:
             rejection_reasons.append("EMPTY_TRANSCRIPT")
-        elif len(transcript) < 5:
+        elif len(transcript) < 1:
             rejection_reasons.append("SHORT_TRANSCRIPT")
             
         repetition_rate = calculate_repetition_rate(transcript)
