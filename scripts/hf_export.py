@@ -9,7 +9,6 @@ Schema:
 * language: str
 * speaker_id: str
 * emotion: str
-* speaker_purity_score: float
 """
 
 import json
@@ -20,7 +19,8 @@ from datasets import Dataset, Audio, DatasetDict
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / ".env")
 
 SAMPLING_RATE = 16000
 
@@ -47,8 +47,6 @@ def prepare_dataset_record(segment_record):
       - audio, transcript, language, speaker_id: from Sarvam ASR
       - style: from Sarvam LLM (tag_style.py)
       - style_confidence: from Sarvam LLM response (omitted if absent)
-      - speaker_purity_score: dominant_speaker_duration / segment_duration
-        (real ratio from diarization — only included when speaker_overlap exists)
     """
     record = {
         "audio": segment_record.get("segment_path", ""),
@@ -61,18 +59,6 @@ def prepare_dataset_record(segment_record):
     # style_confidence: only include if the LLM actually returned it
     if "style_confidence" in segment_record:
         record["style_confidence"] = float(segment_record["style_confidence"])
-
-    # speaker_purity_score: dominant_speaker_duration / segment_duration
-    # Only compute when real diarization overlap data exists
-    speaker_overlap = segment_record.get("speaker_overlap")
-    dominant_speaker = segment_record.get("dominant_speaker", "UNKNOWN")
-    duration = segment_record.get("duration", 0.0)
-    if duration <= 0.0:
-        duration = segment_record.get("end", 0.0) - segment_record.get("start", 0.0)
-
-    if speaker_overlap and dominant_speaker not in ["MIXED", "UNKNOWN"] and duration > 0:
-        dominant_dur = speaker_overlap.get(dominant_speaker, 0.0)
-        record["speaker_purity_score"] = round(dominant_dur / duration, 3)
 
     return record
 

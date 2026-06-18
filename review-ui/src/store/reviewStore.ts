@@ -53,6 +53,7 @@ interface ReviewStore {
   isLoaded: boolean;
   datasetName: string;
   preferredPlaybackRate: number;
+  autoplayEnabled: boolean;
 
   // Actions - data
   loadSegments: (segments: PipelineSegment[], name?: string) => void;
@@ -80,6 +81,7 @@ interface ReviewStore {
   setFilter: (patch: Partial<FilterState>) => void;
   clearFilters: () => void;
   setPreferredPlaybackRate: (rate: number) => void;
+  setAutoplayEnabled: (enabled: boolean) => void;
 
   // Computed
   getFilteredItems: () => ReviewItem[];
@@ -121,6 +123,7 @@ export const useReviewStore = create<ReviewStore>()(
       isLoaded: false,
       datasetName: '',
       preferredPlaybackRate: 1.0,
+      autoplayEnabled: true,
 
       // ── data loading ──────────────────────────────────────────────────────
 
@@ -269,6 +272,10 @@ export const useReviewStore = create<ReviewStore>()(
         set({ preferredPlaybackRate: rate });
       },
 
+      setAutoplayEnabled: (enabled) => {
+        set({ autoplayEnabled: enabled });
+      },
+
       // ── computed ──────────────────────────────────────────────────────────
 
       getFilteredItems: () => {
@@ -347,6 +354,7 @@ export const useReviewStore = create<ReviewStore>()(
         datasetName: state.datasetName,
         filters: state.filters,
         preferredPlaybackRate: state.preferredPlaybackRate,
+        autoplayEnabled: state.autoplayEnabled,
       }),
     }
   )

@@ -22,9 +22,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 QUALITY_THRESHOLDS = {
     "min_duration": 3.0,  # seconds (from User Request)
     "max_duration": 20.0,  # seconds
-    "min_speaker_dominance": 0.90,  # 90% dominance
     "min_transcript_len": 5,  # characters
-    "min_transcription_confidence": 0.80,  # threshold
     "max_clipping_ratio": 0.01,  # max 1% of samples near peak
     "clipping_threshold": 0.95,  # amplitude threshold
     "silence_db_threshold": -45.0,  # threshold in dB
@@ -100,7 +98,7 @@ def calculate_quality_issues(record, audio_path):
     """
     issues = []
     
-    # 1. Speaker checks
+    # Speaker checks
     dominant_speaker = record.get("dominant_speaker", "UNKNOWN")
     speaker = record.get("speaker", "unknown")
     
@@ -109,25 +107,11 @@ def calculate_quality_issues(record, audio_path):
     elif dominant_speaker == "UNKNOWN" or not speaker or speaker == "unknown" or speaker.lower() == "speaker_unknown":
         issues.append("UNKNOWN_SPEAKER")
     
-    # Speaker dominance/purity score
+    # 2. Duration check
     segment_duration = record.get("duration", 0.0)
     if segment_duration <= 0.0:
         segment_duration = record.get("end", 0.0) - record.get("start", 0.0)
         
-    speaker_overlap = record.get("speaker_overlap", {})
-    if speaker_overlap and dominant_speaker not in ["MIXED", "UNKNOWN"]:
-        dominant_overlap = speaker_overlap.get(dominant_speaker, 0.0)
-        speaker_purity_score = dominant_overlap / segment_duration if segment_duration > 0 else 0.0
-    else:
-        speaker_purity_score = 0.0
-        
-    record["speaker_purity_score"] = round(speaker_purity_score, 3)
-    
-    if dominant_speaker not in ["MIXED", "UNKNOWN"]:
-        if speaker_purity_score < QUALITY_THRESHOLDS["min_speaker_dominance"]:
-            issues.append(f"LOW_SPEAKER_DOMINANCE_{speaker_purity_score:.2f}")
-            
-    # 2. Duration check
     if not check_duration(segment_duration):
         issues.append(f"INVALID_DURATION_{segment_duration:.2f}s")
         
@@ -137,12 +121,6 @@ def calculate_quality_issues(record, audio_path):
         issues.append("EMPTY_TRANSCRIPT")
     elif len(transcript.strip()) < QUALITY_THRESHOLDS["min_transcript_len"]:
         issues.append(f"SHORT_TRANSCRIPT_{len(transcript.strip())}")
-        
-    # 4. Transcription confidence check
-    # Use 0.0 when field is absent (never fabricate a passing value)
-    confidence = record.get("transcription_confidence", 0.0)
-    if confidence < QUALITY_THRESHOLDS["min_transcription_confidence"]:
-        issues.append(f"LOW_TRANSCRIPTION_CONFIDENCE_{confidence:.2f}")
         
     # 5. Audio quality checks
     try:

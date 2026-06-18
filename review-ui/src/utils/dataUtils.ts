@@ -36,7 +36,6 @@ function annotationToExport(item: ReviewItem) {
     dominant_speaker: segment.dominant_speaker,
     emotion: segment.emotion,
     style: segment.style,
-    quality_score: segment.quality_score,
 
     // Review annotations
     original_transcript: annotation.original_transcript,

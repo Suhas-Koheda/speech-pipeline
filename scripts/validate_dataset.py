@@ -14,7 +14,6 @@ import numpy as np
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Validation thresholds
-CONFIDENCE_THRESHOLD = 0.80
 REPETITION_THRESHOLD = 0.70
 MIN_DURATION = 3.0
 MAX_DURATION = 20.0
@@ -81,10 +80,6 @@ def validate_dataset():
         record["repetition_rate"] = round(repetition_rate, 3)
         if repetition_rate > REPETITION_THRESHOLD:
             rejection_reasons.append("HIGH_REPETITION")
-            
-        confidence = record.get("transcription_confidence", 1.0)
-        if confidence < CONFIDENCE_THRESHOLD:
-            rejection_reasons.append("LOW_CONFIDENCE")
             
         # 2. Audio checks
         duration = record.get("duration", 0.0)

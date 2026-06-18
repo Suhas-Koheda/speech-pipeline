@@ -25,6 +25,8 @@ export function ReviewPanel() {
     goPrev,
     setStatus,
     getStats,
+    autoplayEnabled,
+    setAutoplayEnabled,
   } = useReviewStore();
 
   const [showHelp, setShowHelp] = useState(false);
@@ -35,8 +37,7 @@ export function ReviewPanel() {
   const playerRef = useRef<{ togglePlay: () => void } | null>(null);
   const transcriptRef = useRef<HTMLTextAreaElement>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
-  // Tracks whether the next sample should auto-play (after accept/reject/skip)
-  const shouldAutoPlay = useRef(false);
+
 
   const handleDecision = useCallback(
     (status: ReviewStatus) => {
@@ -48,7 +49,6 @@ export function ReviewPanel() {
   const handleAccept = useCallback(() => {
     if (currentItem) {
       setStatus(currentItem.id, 'accepted');
-      shouldAutoPlay.current = true;
       goNext();
     }
   }, [currentItem, setStatus, goNext]);
@@ -56,7 +56,6 @@ export function ReviewPanel() {
   const handleReject = useCallback(() => {
     if (currentItem) {
       setStatus(currentItem.id, 'rejected');
-      shouldAutoPlay.current = true;
       goNext();
     }
   }, [currentItem, setStatus, goNext]);
@@ -64,7 +63,6 @@ export function ReviewPanel() {
   const handleSkip = useCallback(() => {
     if (currentItem) {
       setStatus(currentItem.id, 'skipped');
-      shouldAutoPlay.current = true;
       goNext();
     }
   }, [currentItem, setStatus, goNext]);
@@ -123,23 +121,35 @@ export function ReviewPanel() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-800/60 text-surface-300 hover:text-surface-100 hover:bg-surface-700/60 text-xs transition-all border border-surface-700/30"
-            title="Export (Ctrl+S)"
-          >
-            <Download size={13} />
-            Export
-          </button>
-          <button
-            onClick={() => setShowHelp(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-800/60 text-surface-300 hover:text-surface-100 hover:bg-surface-700/60 text-xs transition-all border border-surface-700/30"
-            title="Shortcuts (?)"
-          >
-            <Keyboard size={13} />
-            Shortcuts
-          </button>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-xs text-surface-400 hover:text-surface-200 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoplayEnabled}
+              onChange={(e) => setAutoplayEnabled(e.target.checked)}
+              className="rounded border-surface-700 bg-surface-800 text-accent-500 focus:ring-accent-500/30 focus:ring-offset-0 cursor-pointer"
+            />
+            Autoplay next segment
+          </label>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-800/60 text-surface-300 hover:text-surface-100 hover:bg-surface-700/60 text-xs transition-all border border-surface-700/30"
+              title="Export (Ctrl+S)"
+            >
+              <Download size={13} />
+              Export
+            </button>
+            <button
+              onClick={() => setShowHelp(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-800/60 text-surface-300 hover:text-surface-100 hover:bg-surface-700/60 text-xs transition-all border border-surface-700/30"
+              title="Shortcuts (?)"
+            >
+              <Keyboard size={13} />
+              Shortcuts
+            </button>
+          </div>
         </div>
       </div>
 
@@ -148,7 +158,7 @@ export function ReviewPanel() {
         {/* Audio player */}
         <AudioPlayer
           item={currentItem}
-          autoPlay={(() => { const v = shouldAutoPlay.current; shouldAutoPlay.current = false; return v; })()}
+          autoPlay={autoplayEnabled}
           playerRef={playerRef}
         />
 

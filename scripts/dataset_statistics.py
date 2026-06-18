@@ -172,11 +172,7 @@ def calculate_statistics(
             }
             
         # 6. Quality Metrics
-        quality_scores = [s.get("quality_score", 1.0) for s in segments_to_analyze]
-        stats["quality_metrics"] = {
-            "average_quality_score": round(float(np.mean(quality_scores)), 3) if quality_scores else 1.0,
-            "perfect_quality_segments": sum(1 for s in quality_scores if s >= 1.0),
-        }
+        stats["quality_metrics"] = {}
         
         # Count quality issues in raw files
         issue_counts = defaultdict(int)

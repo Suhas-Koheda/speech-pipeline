@@ -3,6 +3,7 @@ import WaveSurfer from 'wavesurfer.js';
 
 interface UseWaveSurferOptions {
   audioPath: string;
+  segmentIdentifier?: string;
   initialRate?: number;   // apply this rate as soon as audio is ready
   autoPlay?: boolean;     // start playing immediately on ready
   onReady?: (duration: number) => void;
@@ -25,12 +26,22 @@ export function useWaveSurfer(containerRef: React.RefObject<HTMLDivElement | nul
   // Track the currently loaded audio path to avoid redundant loads
   const lastLoadedPathRef = useRef<string | null>(null);
 
+  // Persistent HTMLAudioElement instance to prevent autoplay blocks across loads
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  if (!audioRef.current) {
+    audioRef.current = new Audio();
+  }
+
   // Initialize WaveSurfer ONCE when container becomes available
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const audio = audioRef.current || new Audio();
+    audioRef.current = audio;
+
     const ws = WaveSurfer.create({
       container: containerRef.current,
+      media: audio,
       waveColor: 'rgba(99, 102, 241, 0.4)',
       progressColor: 'rgba(99, 102, 241, 0.9)',
       cursorColor: '#818cf8',
@@ -52,12 +63,6 @@ export function useWaveSurfer(containerRef: React.RefObject<HTMLDivElement | nul
       setIsReady(true);
       setDuration(ws.getDuration());
       optsRef.current.onReady?.(ws.getDuration());
-
-      if (optsRef.current.autoPlay) {
-        ws.play().catch((err) => {
-          console.warn('WaveSurfer autoplay failed:', err);
-        });
-      }
     });
 
     ws.on('audioprocess', (t) => setCurrentTime(t));
@@ -72,11 +77,26 @@ export function useWaveSurfer(containerRef: React.RefObject<HTMLDivElement | nul
       setIsReady(false);
     });
 
+    const handleCanPlayThrough = () => {
+      if (optsRef.current.autoPlay) {
+        console.log(`Autoplaying segment ${optsRef.current.segmentIdentifier || optsRef.current.audioPath}`);
+        audio.play().catch((err) => {
+          console.warn('Playback failed:', err);
+        });
+      }
+    };
+
+    audio.addEventListener('canplaythrough', handleCanPlayThrough);
+
     // Load initial audio path and record it
+    audio.pause();
+    audio.src = optsRef.current.audioPath;
+    audio.load();
     ws.load(optsRef.current.audioPath);
     lastLoadedPathRef.current = optsRef.current.audioPath;
 
     return () => {
+      audio.removeEventListener('canplaythrough', handleCanPlayThrough);
       ws.destroy();
       wsRef.current = null;
     };
@@ -86,7 +106,8 @@ export function useWaveSurfer(containerRef: React.RefObject<HTMLDivElement | nul
   // Load new audio path when it changes (only if different)
   useEffect(() => {
     const ws = wsRef.current;
-    if (!ws) return;
+    const audio = audioRef.current;
+    if (!ws || !audio) return;
     if (opts.audioPath === lastLoadedPathRef.current) {
       return;
     }
@@ -95,6 +116,11 @@ export function useWaveSurfer(containerRef: React.RefObject<HTMLDivElement | nul
     setCurrentTime(0);
     setDuration(0);
     setError(null);
+
+    audio.pause();
+    audio.src = opts.audioPath;
+    audio.load();
+
     ws.load(opts.audioPath);
     lastLoadedPathRef.current = opts.audioPath;
   }, [opts.audioPath]);

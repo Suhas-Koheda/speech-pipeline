@@ -11,7 +11,6 @@ import {
   Mic,
   Globe,
   LayoutGrid,
-  Hash,
   AlertCircle,
 } from 'lucide-react';
 import type { ReviewItem } from '../types';
@@ -52,6 +51,7 @@ export function AudioPlayer({ item, autoPlay = false, onPlayPause, playerRef }: 
   const { isPlaying, isReady, currentTime, duration, playbackRate, error, togglePlay, setPlaybackRate, replay } =
     useWaveSurfer(containerRef as React.RefObject<HTMLDivElement>, {
       audioPath,
+      segmentIdentifier: item.segment.title || item.id,
       initialRate: preferredRate,
       autoPlay,
     });
@@ -104,12 +104,6 @@ export function AudioPlayer({ item, autoPlay = false, onPlayPause, playerRef }: 
           )}
           {item.segment.style && item.segment.style !== item.segment.emotion && (
             <MetaBadge icon={<LayoutGrid size={11} />} label={item.segment.style} />
-          )}
-          {item.segment.quality_score != null && (
-            <MetaBadge
-              icon={<Hash size={11} />}
-              label={`Q: ${item.segment.quality_score.toFixed(2)}`}
-            />
           )}
         </div>
       </div>
