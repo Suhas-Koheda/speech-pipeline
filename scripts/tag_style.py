@@ -183,6 +183,17 @@ Output:"""
 def process_record_task(record, idx, tracker):
     """Worker task that processes a single segment record."""
     transcript = record.get("transcript", "")
+    
+    # Completely remove style_confidence / confidence
+    if "style_confidence" in record:
+        del record["style_confidence"]
+    if "emotion_confidence" in record:
+        del record["emotion_confidence"]
+
+    if not transcript or not transcript.strip():
+        # Skip empty transcripts immediately without calling the API or reporting failures
+        return record
+        
     style, emotion, retries_used, duration, success = tag_style_with_retry(transcript)
     
     if success:
@@ -194,12 +205,6 @@ def process_record_task(record, idx, tracker):
     else:
         tracker.record_failure(duration, retries_used)
         
-    # Completely remove style_confidence / confidence
-    if "style_confidence" in record:
-        del record["style_confidence"]
-    if "emotion_confidence" in record:
-        del record["emotion_confidence"]
-    
     return record
 
 def main():
@@ -232,8 +237,9 @@ def main():
         
     style_distribution = defaultdict(int)
     for r in updated_records:
-        style = r.get("style", "neutral")
-        style_distribution[style] += 1
+        style = r.get("style")
+        if style:
+            style_distribution[style] += 1
         
     # Save output metadata
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -52,8 +52,8 @@ def prepare_dataset_record(segment_record):
         "transcript": segment_record.get("transcript", ""),
         "language": segment_record.get("language", "unknown"),
         "speaker_id": segment_record.get("dominant_speaker", "UNKNOWN"),
-        "style": segment_record.get("style", "neutral"),
-        "emotion": segment_record.get("emotion", "neutral"),
+        "style": segment_record.get("style"),
+        "emotion": segment_record.get("emotion"),
     }
 
     return record

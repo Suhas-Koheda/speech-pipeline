@@ -143,18 +143,18 @@ python3 scripts/attribute_transcripts.py
 - **Outputs:** Appends `transcript`, `language`, and `transcription_confidence` fields to `data/segments_metadata.jsonl`.
 
 ### Step 7: Quality Filtering
-Apply robust TTS-centric quality filters to isolate the clean, single-speaker segments.
+Filter speech segments using duration limits (2.0s - 30.0s) and verify file validity.
 ```bash
 python3 scripts/quality_filter.py
 ```
-- **Outputs:** Updates `data/segments_metadata.jsonl` with `quality_score`, `quality_issues`, and `speaker_purity_score`. Creates the accepted subset in `data/segments_metadata_filtered.jsonl`.
+- **Outputs:** Creates the filtered subset of valid audio clips in `data/segments_metadata_filtered.jsonl`.
 
 ### Step 8: Emotion & Style Tagging
-Apply LLM-based emotion and speaking-style classification using transcript content and video metadata.
+Apply LLM-based emotion and style classification to transcripts using the Sarvam LLM.
 ```bash
-python3 scripts/emotion_tagging.py
+python3 scripts/tag_style.py
 ```
-- **Outputs:** Generates `data/segments_metadata_emotions.jsonl` containing the `emotion` and `emotion_confidence` tags.
+- **Outputs:** Generates `data/segments_metadata_emotions.jsonl` containing the parsed `style` and `emotion` attributes.
 
 ### Step 9: HTML-Based Manual Review Workflow
 Generate and use a premium interactive HTML dashboard for rapid human verification.
@@ -235,12 +235,9 @@ python3 scripts/dataset_statistics.py
   "speaker_overlap": {"SPEAKER_00": 12.416, "SPEAKER_01": 2.584},
   "transcript": "నమస్కారం అండి ఈరోజు మనతో ఉన్న గెస్ట్",
   "language": "te",
-  "transcription_confidence": 0.98,
-  "speaker_purity_score": 0.828,
-  "quality_score": 1.0,
+  "style": "conversational",
+  "emotion": "neutral",
   "quality_issues": [],
-  "emotion": "conversational",
-  "emotion_confidence": 0.95,
   "approved": true
 }
 ```
@@ -250,5 +247,5 @@ python3 scripts/dataset_statistics.py
 * `transcript`: `str`
 * `language`: `str`
 * `speaker_id`: `str`
-* `emotion`: `str`
-* `speaker_purity_score`: `float`
+* `style`: `str` (optional/nullable)
+* `emotion`: `str` (optional/nullable)
