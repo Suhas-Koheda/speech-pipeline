@@ -1,11 +1,6 @@
 yt-dlp
 soundfile
-silero-vad
-torch
-torchaudio
 numpy
-scipy
-requests
 python-dotenv
 datasets
 huggingface_hub
