@@ -43,8 +43,6 @@ function annotationToExport(item: ReviewItem) {
     transcript_was_corrected: annotation.corrected_transcript !== annotation.original_transcript,
     review_status: annotation.review_status,
     rejection_reason: annotation.rejection_reason ?? null,
-    transcript_score: annotation.transcript_score ?? null,
-    audio_quality_score: annotation.audio_quality_score ?? null,
     wrong_words: annotation.wrong_words.map(({ asr, correct }) => ({ asr, correct })),
     error_categories: annotation.error_categories,
     notes: annotation.notes,
@@ -139,8 +137,6 @@ function normalizeAnnotation(raw: Record<string, unknown>): ReviewAnnotation | n
     corrected_transcript: (raw.corrected_transcript as string) ?? (raw.original_transcript as string) ?? '',
     review_status: (raw.review_status as ReviewAnnotation['review_status']) ?? 'unreviewed',
     rejection_reason: raw.rejection_reason as ReviewAnnotation['rejection_reason'],
-    transcript_score: typeof raw.transcript_score === 'number' ? raw.transcript_score : undefined,
-    audio_quality_score: typeof raw.audio_quality_score === 'number' ? raw.audio_quality_score : undefined,
     wrong_words: Array.isArray(raw.wrong_words)
       ? (raw.wrong_words as { asr: string; correct: string }[]).map((w, i) => ({
           id: `imported-${i}`,
@@ -217,20 +213,6 @@ export function computeAnalytics(items: ReviewItem[]): AnalyticsData {
   const reviewed = total - unreviewed;
   const remaining = unreviewed;
   const approvalRate = reviewed > 0 ? (approved / reviewed) * 100 : 0;
-
-  const scoredTranscripts = items.filter((i) => i.annotation.transcript_score != null);
-  const avgTranscriptScore =
-    scoredTranscripts.length > 0
-      ? scoredTranscripts.reduce((s, i) => s + (i.annotation.transcript_score ?? 0), 0) /
-        scoredTranscripts.length
-      : 0;
-
-  const scoredAudio = items.filter((i) => i.annotation.audio_quality_score != null);
-  const avgAudioScore =
-    scoredAudio.length > 0
-      ? scoredAudio.reduce((s, i) => s + (i.annotation.audio_quality_score ?? 0), 0) /
-        scoredAudio.length
-      : 0;
 
   const corrected = items.filter(
     (i) => i.annotation.corrected_transcript !== i.annotation.original_transcript

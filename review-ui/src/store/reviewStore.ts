@@ -67,8 +67,6 @@ interface ReviewStore {
   // Actions - annotation
   updateAnnotation: (id: string, patch: Partial<ReviewAnnotation>) => void;
   setStatus: (id: string, status: ReviewStatus) => void;
-  setTranscriptScore: (id: string, score: number) => void;
-  setAudioScore: (id: string, score: number) => void;
   setRejectionReason: (id: string, reason: RejectionReason | undefined) => void;
   setCorrectedTranscript: (id: string, text: string) => void;
   setErrorCategories: (id: string, cats: ErrorCategory[]) => void;
@@ -212,14 +210,6 @@ export const useReviewStore = create<ReviewStore>()(
 
       setStatus: (id, status) => {
         get().updateAnnotation(id, { review_status: status });
-      },
-
-      setTranscriptScore: (id, score) => {
-        get().updateAnnotation(id, { transcript_score: score });
-      },
-
-      setAudioScore: (id, score) => {
-        get().updateAnnotation(id, { audio_quality_score: score });
       },
 
       setRejectionReason: (id, reason) => {

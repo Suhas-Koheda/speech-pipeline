@@ -15,6 +15,9 @@ def get_video_metadata(url: str):
 
     return {
         "video_id": info.get("id"),
+        "youtube_url": info.get("webpage_url"),
+        "channel_name": info.get("channel"),
+        "video_title": info.get("title"),
         "title": info.get("title"),
         "channel": info.get("channel"),
         "duration": info.get("duration"),

@@ -80,8 +80,6 @@ export interface ReviewAnnotation {
   corrected_transcript: string;
   review_status: ReviewStatus;
   rejection_reason?: RejectionReason;
-  transcript_score?: number; // 1-5
-  audio_quality_score?: number; // 1-5
   wrong_words: AsrError[];
   error_categories: ErrorCategory[];
   notes: string;
@@ -133,8 +131,6 @@ export interface AnalyticsData {
   skipped: number;
   remaining: number;
   approvalRate: number;
-  avgTranscriptScore: number;
-  avgAudioScore: number;
   correctionRate: number;
   rejectionReasonCounts: Record<string, number>;
   errorCategoryCounts: Record<string, number>;

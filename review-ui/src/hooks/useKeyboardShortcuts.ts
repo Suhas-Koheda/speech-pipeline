@@ -15,7 +15,7 @@ interface ShortcutOptions {
 }
 
 export function useKeyboardShortcuts(opts: ShortcutOptions) {
-  const { getCurrentItem, setTranscriptScore, setAudioScore } = useReviewStore();
+  const { getCurrentItem } = useReviewStore();
 
   const handler = useCallback(
     (e: KeyboardEvent) => {
@@ -91,23 +91,9 @@ export function useKeyboardShortcuts(opts: ShortcutOptions) {
           e.preventDefault();
           opts.onHelp?.();
           break;
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5': {
-          if (!id) break;
-          const score = parseInt(e.key);
-          if (e.shiftKey) {
-            setAudioScore(id, score);
-          } else {
-            setTranscriptScore(id, score);
-          }
-          break;
-        }
       }
     },
-    [opts, getCurrentItem, setTranscriptScore, setAudioScore]
+    [opts, getCurrentItem]
   );
 
   useEffect(() => {

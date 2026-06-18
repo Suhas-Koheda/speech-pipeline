@@ -266,6 +266,9 @@ def diarize_audio(metadata):
             rel_segment_path = f"../segments/{channel_name}/{video_id}/{segment_filename}"
             record = {
                 "video_id": video_id,
+                "youtube_url": video.get("youtube_url") or video.get("url") or f"https://www.youtube.com/watch?v={video_id}",
+                "channel_name": video.get("channel_name") or video.get("channel") or "",
+                "video_title": video.get("video_title") or video.get("title") or title,
                 "channel": video.get("channel"),
                 "title": title,
                 "audio_path": rel_segment_path,       # final schema

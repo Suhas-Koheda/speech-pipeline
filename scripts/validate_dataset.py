@@ -67,6 +67,12 @@ def validate_dataset():
     rejected_count = 0
     
     for record in records:
+        # Verify required source metadata properties exist
+        for key in ["youtube_url", "channel_name", "video_title", "video_id"]:
+            if key not in record:
+                print(f"Error: Record is missing required source metadata field '{key}'! Record: {record}")
+                assert key in record, f"Missing required source metadata field: {key}"
+                
         rejection_reasons = []
         
         # 1. Transcript checks
