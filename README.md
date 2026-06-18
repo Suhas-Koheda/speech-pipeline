@@ -54,12 +54,13 @@ speech-pipeline/
 │   └── [Channel_Name]/
 │       └── [Video_ID]/          # Segmented WAV files (5.0s to 20.0s)
 └── scripts/
+    ├── relabel_language.py      # Language relabeling utility for pure English segments and metadata backfill
     ├── extract_metatdata.py     # YouTube metadata extractor (Note: script spelling)
     ├── download_videos.py       # Helper for expanding channel playlist URLs
     ├── download_audio.py        # YouTube audio downloader and resampler
     ├── generate_segments_vad.py # Silero VAD segment generator
     ├── diarize_audio.py         # Sarvam ASR & speaker diarization orchestrator
-    ├── attribute_speakers.py    # Temporal speaker overlapping and attribution matcher
+    ├── attribute_speakers.py    # Temporal speaker overlapping and attribution matchers
     └── attribute_transcripts.py # Maps full-audio transcript text onto VAD segments
 ```
 
@@ -79,19 +80,24 @@ Install the required Python packages:
 ```bash
 pip install -r requirements.txt
 ```
-*(Ensure you have packages such as `torch`, `torchaudio`, `transformers`, `sarvamai`, `silero-vad`, `yt-dlp`, `soundfile`, and `re` installed).*
+*(Ensure you have packages such as `torch`, `torchaudio`, `transformers`, `sarvamai`, `silero-vad`, `yt-dlp`, `soundfile`, `langdetect`, and `re` installed).*
 
-### 3. Sarvam API Configuration
-Diarization and Transcription require a valid Sarvam AI API Key.
-1. Create a `.env` file at the project root directory.
-2. Define the `SARVAM_API_KEY` in the file:
-   ```env
-   SARVAM_API_KEY=your_api_key_here
-   ```
-   Alternatively, you can export it to your environment:
-   ```bash
-   export SARVAM_API_KEY=your_api_key_here
-   ```
+### 3. API & Authentication Configuration
+The pipeline uses environment variables for authentication. Create a `.env` file at the project root directory:
+
+```env
+SARVAM_API_KEY=your_sarvam_api_key_here
+HF_TOKEN=your_huggingface_write_token_here
+```
+
+* **`SARVAM_API_KEY`**: Required for speaker diarization, ASR transcription, and style/emotion classification.
+* **`HF_TOKEN`**: Required to authenticate with the Hugging Face Hub when exporting/pushing datasets (using `--push`).
+
+Alternatively, you can export these variables directly in your environment:
+```bash
+export SARVAM_API_KEY=your_sarvam_api_key_here
+export HF_TOKEN=your_huggingface_write_token_here
+```
 
 
 ---
@@ -155,6 +161,13 @@ Apply LLM-based emotion and style classification to transcripts using the Sarvam
 python3 scripts/tag_style.py
 ```
 - **Outputs:** Generates `data/segments_metadata_emotions.jsonl` containing the parsed `style` and `emotion` attributes.
+
+### Step 8b: Language Relabeling & Metadata Backfill
+Relabel pure English segments to `"en-IN"` (leaving Telugu and code-mixed segments unchanged) and ensure full source metadata backfill before export.
+```bash
+python3 scripts/relabel_language.py
+```
+- **Outputs:** Updates all intermediate and final JSON/JSONL datasets with `"en-IN"` labels and `video_id`, `youtube_url`, `channel_name`, and `video_title` source metadata.
 
 ### Step 9: HTML-Based Manual Review Workflow
 Generate and use a premium interactive HTML dashboard for rapid human verification.
@@ -243,9 +256,29 @@ python3 scripts/dataset_statistics.py
 ```
 
 ### 3. Hugging Face Dataset Schema
+
+#### Accepted Splits (`balanced_60min` & `full_accepted`)
 * `audio`: `{"path": "...", "bytes": ...}`
-* `transcript`: `str`
-* `language`: `str`
+* `transcript`: `str` (corrected transcript)
+* `language`: `str` ("te-IN" or "en-IN")
 * `speaker_id`: `str`
-* `style`: `str` (optional/nullable)
-* `emotion`: `str` (optional/nullable)
+* `style`: `str`
+* `emotion`: `str`
+* `video_id`: `str`
+* `youtube_url`: `str`
+* `channel_name`: `str`
+* `video_title`: `str`
+
+#### Rejected Split (`rejected`)
+* `audio`: `{"path": "...", "bytes": ...}`
+* `transcript`: `str` (corrected transcript)
+* `language`: `str` ("te-IN" or "en-IN")
+* `speaker_id`: `str`
+* `style`: `str`
+* `emotion`: `str`
+* `video_id`: `str`
+* `youtube_url`: `str`
+* `channel_name`: `str`
+* `video_title`: `str`
+* `rejection_reason`: `str`
+* `notes`: `str`

@@ -3,14 +3,11 @@ soundfile
 silero-vad
 torch
 torchaudio
-pyannote.audio
 numpy
 scipy
 requests
 python-dotenv
-google-generativeai
-groq
 datasets
 huggingface_hub
 sarvamai
-
+langdetect
